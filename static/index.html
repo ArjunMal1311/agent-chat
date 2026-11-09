@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>Agent Chat</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="usagebar" class="usagebar" role="status" aria-label="Claude Code plan usage">
+  <span class="ub-title">Claude Code usage</span>
+  <span id="ub-five" class="ub-item"></span>
+  <span id="ub-week" class="ub-item"></span>
+  <span id="ub-age" class="ub-age"></span>
+  <button id="ub-refresh" class="ub-btn" type="button" title="Runs one tiny call so Claude Code reports fresh numbers. It uses a little usage itself.">Refresh</button>
+</div>
+<div id="app" data-view="list">
+  <aside id="sidebar">
+    <header class="bar">
+      <svg class="logo" viewBox="0 0 256 256" aria-hidden="true">
+        <circle cx="128" cy="128" r="124" fill="#00a884"/>
+        <rect x="62" y="70" width="132" height="96" rx="30" fill="#fff"/>
+        <path d="M84 158h42l-42 42z" fill="#fff"/>
+        <circle cx="100" cy="118" r="9.5" fill="#00a884"/><circle cx="128" cy="118" r="9.5" fill="#00a884"/><circle cx="156" cy="118" r="9.5" fill="#00a884"/>
+      </svg>
+      <div class="me">Agent Chat</div>
+      <button id="theme" class="icon-btn" type="button" aria-label="Change theme" title="Theme: system, light, dark">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 3.5a8.5 8.5 0 0 1 0 17z" fill="currentColor"/></svg>
+      </button>
+    </header>
+    <div id="summary" class="summary-row"></div>
+    <div class="search"><input id="filter" type="search" placeholder="Search agents" autocomplete="off" aria-label="Search agents"></div>
+    <ul id="chat-list"></ul>
+  </aside>
+  <main id="thread">
+    <div id="empty">
+      <svg class="empty-logo" viewBox="0 0 256 256" aria-hidden="true">
+        <circle cx="128" cy="128" r="124" fill="#00a884"/>
+        <rect x="62" y="70" width="132" height="96" rx="30" fill="#fff"/>
+        <path d="M84 158h42l-42 42z" fill="#fff"/>
+        <circle cx="100" cy="118" r="9.5" fill="#00a884"/><circle cx="128" cy="118" r="9.5" fill="#00a884"/><circle cx="156" cy="118" r="9.5" fill="#00a884"/>
+      </svg>
+      <div class="empty-title">Agent Chat</div>
+      <p>Message an agent, or ask the Manager and it will pick the right one.</p>
+      <div id="starters" class="chips"></div>
+      <p class="empty-note">Agents prepare drafts. Nothing is sent or posted for you.</p>
+    </div>
+    <section id="conversation" hidden>
+      <header class="bar">
+        <button id="back" class="icon-btn" type="button" aria-label="Back to chats">&#8249;</button>
+        <div id="head-avatar" class="avatar"></div>
+        <div class="head-text">
+          <div id="head-title" class="head-title"></div>
+          <div id="head-sub" class="head-sub"></div>
+          <div id="head-usage" class="head-usage"></div>
+          <div id="head-cache" class="head-cache"></div>
+        </div>
+        <button id="menu-btn" class="icon-btn menu-btn" type="button" aria-label="Chat options" aria-haspopup="menu" aria-expanded="false" aria-controls="menu">
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="12" cy="5" r="2" fill="currentColor"/><circle cx="12" cy="12" r="2" fill="currentColor"/><circle cx="12" cy="19" r="2" fill="currentColor"/></svg>
+        </button>
+        <div id="menu" class="menu" role="menu" hidden></div>
+      </header>
+      <div id="messages" role="log" aria-live="polite"></div>
+      <form id="composer" autocomplete="off">
+        <textarea id="input" rows="1" placeholder="Type a message" aria-label="Message"></textarea>
+        <button id="send" type="submit" aria-label="Send">
+          <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path fill="currentColor" d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12 2-12 2z"/></svg>
+        </button>
+      </form>
+    </section>
+  </main>
+</div>
+<div id="toast" role="status" hidden></div>
+<script src="/app.js"></script>
+</body>
+</html>
