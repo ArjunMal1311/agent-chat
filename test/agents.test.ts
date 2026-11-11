@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import test, { describe } from "node:test";
 import { fileURLToPath } from "node:url";
-import { agentFromForm, loadAgents, parse, seedExamples } from "../src/main/agents.ts";
+import { agentFromForm, loadAgents, parse, seedExamples } from "../src/main/agents/agents.ts";
 import { tmp } from "./helpers.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");

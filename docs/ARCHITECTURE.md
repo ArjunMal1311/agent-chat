@@ -33,14 +33,19 @@ src/
     index.ts             Electron window: npm run app
     cli.ts               headless start: npm start
     boot.ts              starts store, hub, scheduler and server
-    server.ts            web page + JSON API + live updates (server-sent events)
-    hub.ts               sends messages, runs agents, manager hand-offs, approvals, memory
-    runner.ts            runs one turn through `claude -p` or `codex exec`
-    agents.ts            reads agents/*.md, the New agent form rules, example seeding
-    store.ts             SQLite: messages, unread counts, working state, approvals, usage
-    scheduler.ts         agents that run on their own
-    codexlimits.ts       reads Codex's usage windows
-    bus.ts               in-process event bus behind the live stream
+    agents/
+      agents.ts          reads agents/*.md, the New agent form rules, example seeding
+      scheduler.ts       agents that run on their own
+    runner/
+      runner.ts          runs one turn through `claude -p` or `codex exec`
+      codexlimits.ts     reads Codex's usage windows
+    hub/
+      hub.ts             sends messages, runs agents, manager hand-offs, approvals, memory
+      bus.ts             in-process event bus behind the live stream
+    server/
+      server.ts          web page + JSON API + live updates (server-sent events)
+    db/
+      store.ts           SQLite: messages, unread counts, working state, approvals, usage
   renderer/
     index.html           page shell
     src/
@@ -48,7 +53,7 @@ src/
       App.tsx            top-level layout
       components/        AgentForm, Avatar, Rich, Sidebar, Thread
       store/             Zustand store (chat state, API calls, live updates)
-      lib/               api client, formatting helpers, API types
+      lib/               api client, zod schemas for every API reply, types derived from them, formatting helpers
       styles/            app.css
 test/                    node:test suite (npm test); helpers.ts holds fakes
 examples/agents/         the agents a fresh install starts with
@@ -63,17 +68,19 @@ docs/                    this file
 
 | You want to change | Look in |
 |---|---|
-| What an agent may do, or the front-matter fields | `src/main/agents.ts` |
-| How a turn runs, the tool allowlist, cost and token parsing | `src/main/runner.ts` |
-| Hand-offs, approvals, the Manager's check, memory notes | `src/main/hub.ts` |
-| An API route or the live stream | `src/main/server.ts` |
-| Schema or queries | `src/main/store.ts` |
+| What an agent may do, or the front-matter fields | `src/main/agents/agents.ts` |
+| Scheduled agents | `src/main/agents/scheduler.ts` |
+| How a turn runs, the tool allowlist, cost and token parsing | `src/main/runner/runner.ts` |
+| Hand-offs, approvals, the Manager's check, memory notes | `src/main/hub/hub.ts` |
+| An API route or the live stream | `src/main/server/server.ts` |
+| Schema or queries | `src/main/db/store.ts` |
 | A screen or component | `src/renderer/src/components/` |
 | Client state | `src/renderer/src/store/` |
-| API response types (renderer side) | `src/renderer/src/lib/types.ts` |
+| What the page expects from an API reply | `src/renderer/src/lib/schemas.ts` (types in `types.ts` are derived from it) |
 
 ## Conventions
 
-- Tests mirror the main-process modules: `test/<module>.test.ts`. They use fake `claude` and `codex` binaries (see `test/helpers.ts`), so no network or AI login is needed.
+- Within `src/main/`, `index.ts`, `cli.ts` and `boot.ts` are the entry points; everything else sits in a folder by responsibility. Keep new files in the folder that owns the concern, and make a new folder only when a second file needs it.
+- Tests are named after the main-process modules: `test/<module>.test.ts`. They use fake `claude` and `codex` binaries (see `test/helpers.ts`), so no network or AI login is needed.
 - Your own agents and chat data never go in git: `agents/` and `data/` are ignored. Anything meant to ship goes in `examples/agents/`.
 - Run `npm run typecheck` and `npm test` before committing.

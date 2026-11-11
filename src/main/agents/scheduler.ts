@@ -4,7 +4,7 @@
 // the app starts again the same day (never twice in a day: the last day each agent ran is saved in schedule.json).
 import fs from "node:fs";
 import path from "node:path";
-import type { Hub } from "./hub.ts";
+import type { Hub } from "../hub/hub.ts";
 
 type Clock = () => Date;
 type Ran = Record<string, string>;

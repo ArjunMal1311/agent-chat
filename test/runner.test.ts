@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { makeAgent } from "../src/main/agents.ts";
-import { RunError, describeCodexEvent, describeEvent, describeTool, extractUsage, parseClaudeOutput, runAgent, runClaude, runCodex } from "../src/main/runner.ts";
+import { makeAgent } from "../src/main/agents/agents.ts";
+import { RunError, describeCodexEvent, describeEvent, describeTool, extractUsage, parseClaudeOutput, runAgent, runClaude, runCodex } from "../src/main/runner/runner.ts";
 import { fakeCli, tmp, withPath } from "./helpers.ts";
 
 const STREAM = `

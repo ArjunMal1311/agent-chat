@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { normalize, readCodexLimits, windowLabel } from "../src/main/codexlimits.ts";
+import { normalize, readCodexLimits, windowLabel } from "../src/main/runner/codexlimits.ts";
 import { fakeRaw, tmp, withPath } from "./helpers.ts";
 
 // A fake `codex app-server`: answers initialize, then account/rateLimits/read, one JSON object per line.

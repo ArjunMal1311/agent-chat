@@ -1,5 +1,16 @@
 import { create } from "zustand";
 import { api } from "../lib/api";
+import {
+  AgentOptionsSchema,
+  ChatsResponse,
+  ClearResponse,
+  CodexRefreshResponse,
+  CreateAgentResponse,
+  Ignored,
+  LimitsRefreshResponse,
+  LimitsResponse,
+  MessagesResponse,
+} from "../lib/schemas";
 import { fmtMoney, previewOf } from "../lib/format";
 import type { AgentOptions, Chat, CodexLimits, Limits, Message } from "../lib/types";
 
@@ -84,7 +95,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadChats() {
-    const data = await api<{ chats: Chat[] }>("/api/chats");
+    const data = await api("/api/chats", ChatsResponse);
     // Desktop notification when an agent writes and you are not looking at that chat.
     for (const c of data.chats) {
       const before = seenUnread[c.name] || 0;
@@ -108,7 +119,7 @@ export const useStore = create<State>((set, get) => ({
   async loadMessages() {
     const name = get().current;
     if (!name) return;
-    const data = await api<{ chat: Chat; messages: Message[] }>("/api/messages?chat=" + encodeURIComponent(name));
+    const data = await api("/api/messages?chat=" + encodeURIComponent(name), MessagesResponse);
     if (get().current !== name) return;
     set({ meta: data.chat, messages: data.messages });
     void get().loadChats();
@@ -116,7 +127,7 @@ export const useStore = create<State>((set, get) => ({
 
   async loadLimits() {
     try {
-      const data = await api<{ limits: Limits; codex: CodexLimits | null }>("/api/limits");
+      const data = await api("/api/limits", LimitsResponse);
       set({ limits: data.limits, codex: data.codex || null });
     } catch {
       /* keep showing the last numbers */
@@ -139,7 +150,7 @@ export const useStore = create<State>((set, get) => ({
     const chat = get().current;
     if (!text.trim() || !chat) return false;
     try {
-      await api("/api/send", { chat, text: text.trim() });
+      await api("/api/send", Ignored, { chat, text: text.trim() });
       await get().loadMessages();
       return true;
     } catch (err) {
@@ -150,7 +161,7 @@ export const useStore = create<State>((set, get) => ({
 
   async approve(id, decision) {
     try {
-      await api("/api/approve", { id, decision });
+      await api("/api/approve", Ignored, { id, decision });
       await get().loadMessages();
     } catch (err) {
       get().toast((err as Error).message);
@@ -180,13 +191,13 @@ export const useStore = create<State>((set, get) => ({
     if (!chat) return;
     try {
       if (action === "clear") {
-        const res = await api<{ deleted: number }>("/api/clear", { chat });
+        const res = await api("/api/clear", ClearResponse, { chat });
         get().toast(`Chat wiped (${res.deleted} message${res.deleted === 1 ? "" : "s"} deleted)`);
       } else if (action === "compact") {
-        await api("/api/compact", { chat });
+        await api("/api/compact", Ignored, { chat });
         get().toast("Compacting… the chat shows progress");
       } else {
-        await api("/api/forget", { chat });
+        await api("/api/forget", Ignored, { chat });
         get().toast("Notes forgotten");
       }
       set({ menu: null });
@@ -199,7 +210,7 @@ export const useStore = create<State>((set, get) => ({
 
   async refreshClaudeLimits() {
     try {
-      const res = await api<{ usage?: { cost?: number }; limits: Limits }>("/api/limits/refresh", {});
+      const res = await api("/api/limits/refresh", LimitsRefreshResponse, {});
       set({ limits: res.limits });
       const cost = res.usage?.cost;
       get().toast(cost ? `Updated (that check cost ~${fmtMoney(cost)})` : "Updated");
@@ -210,7 +221,7 @@ export const useStore = create<State>((set, get) => ({
 
   async refreshCodexLimits() {
     try {
-      set({ codex: (await api<{ codex: CodexLimits | null }>("/api/codex-limits/refresh", {})).codex });
+      set({ codex: (await api("/api/codex-limits/refresh", CodexRefreshResponse, {})).codex });
     } catch (err) {
       get().toast("Could not refresh Codex: " + (err as Error).message);
     }
@@ -219,7 +230,7 @@ export const useStore = create<State>((set, get) => ({
   async openForm() {
     set({ menu: null, formOpen: true, options: null });
     try {
-      set({ options: await api<AgentOptions>("/api/agent-options") });
+      set({ options: await api("/api/agent-options", AgentOptionsSchema) });
     } catch {
       set({ options: { enabled: false, tools: [], models: [], cwd: "" } });
     }
@@ -227,7 +238,7 @@ export const useStore = create<State>((set, get) => ({
   closeForm: () => set({ formOpen: false }),
 
   async createAgent(spec) {
-    const res = await api<{ name: string }>("/api/agents", spec); // throws with the server's plain message
+    const res = await api("/api/agents", CreateAgentResponse, spec); // throws with the server's plain message
     set({ formOpen: false });
     await get().loadChats();
     get().toast("Agent created");

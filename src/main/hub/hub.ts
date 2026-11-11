@@ -5,11 +5,11 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { type Agent, FORM_MODELS, FORM_TOOLS, agentFromForm, makeAgent } from "./agents.ts";
+import { type Agent, FORM_MODELS, FORM_TOOLS, agentFromForm, makeAgent } from "../agents/agents.ts";
 import type { Bus } from "./bus.ts";
-import { type CodexLimits, readCodexLimits } from "./codexlimits.ts";
-import type { RunResult, Runner, Usage } from "./runner.ts";
-import type { Message, Store } from "./store.ts";
+import { type CodexLimits, readCodexLimits } from "../runner/codexlimits.ts";
+import type { RunResult, Runner, Usage } from "../runner/runner.ts";
+import type { Message, Store } from "../db/store.ts";
 
 const REMEMBER_RE = /^REMEMBER:\s*(.+)$/gm;
 const POST_RE = /^POST_READY:\s*(.+)$/gm;

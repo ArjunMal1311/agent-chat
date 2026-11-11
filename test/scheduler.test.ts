@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test, { describe } from "node:test";
-import { makeAgent, type Agent } from "../src/main/agents.ts";
-import { Scheduler } from "../src/main/scheduler.ts";
+import { makeAgent, type Agent } from "../src/main/agents/agents.ts";
+import { Scheduler } from "../src/main/agents/scheduler.ts";
 import { tmp } from "./helpers.ts";
 
 const at = (day: number, hhmm: string) => {

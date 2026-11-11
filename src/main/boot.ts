@@ -1,13 +1,13 @@
 // Starts the whole app (store, hub, scheduler, HTTP server). Used by the headless CLI and by the Electron window.
 import fs from "node:fs";
 import path from "node:path";
-import { loadAgents, seedExamples } from "./agents.ts";
-import { Bus } from "./bus.ts";
-import { Hub } from "./hub.ts";
-import { runAgent } from "./runner.ts";
-import { Scheduler } from "./scheduler.ts";
-import { type Served, startServer } from "./server.ts";
-import { Store } from "./store.ts";
+import { loadAgents, seedExamples } from "./agents/agents.ts";
+import { Bus } from "./hub/bus.ts";
+import { Hub } from "./hub/hub.ts";
+import { runAgent } from "./runner/runner.ts";
+import { Scheduler } from "./agents/scheduler.ts";
+import { type Served, startServer } from "./server/server.ts";
+import { Store } from "./db/store.ts";
 
 export interface BootOptions {
   root: string; // the project folder (holds examples/agents)

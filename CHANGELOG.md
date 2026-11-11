@@ -7,6 +7,8 @@
 - Renderer reorganised into `components/`, `store/`, `lib/` and `styles/`.
 - Private agents (`agents/`) and local data (`data/`) are no longer tracked by git; `examples/agents/` is what ships.
 - Added `docs/ARCHITECTURE.md`.
+- `src/main/` grouped into `agents/`, `runner/`, `hub/`, `server/` and `db/`.
+- The page now checks every API reply with zod (`lib/schemas.ts`) and reports the route and field when a reply has the wrong shape; the renderer types are derived from the schemas.
 
 ## 0.1.0
 

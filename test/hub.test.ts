@@ -2,9 +2,9 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
 import test, { describe } from "node:test";
-import { makeAgent } from "../src/main/agents.ts";
-import { normalizeLimits, parseJsonObject, shellSplit } from "../src/main/hub.ts";
-import type { Callbacks, RunResult } from "../src/main/runner.ts";
+import { makeAgent } from "../src/main/agents/agents.ts";
+import { normalizeLimits, parseJsonObject, shellSplit } from "../src/main/hub/hub.ts";
+import type { Callbacks, RunResult } from "../src/main/runner/runner.ts";
 import { defaultAgents, makeHub, tmp, waitFor } from "./helpers.ts";
 
 const usageOf = (over = {}) => ({ model: "claude-sonnet-5-5", cost: 0.155, in: 62190, out: 6, seconds: 3.3, cache_read: 23971, cache_write: 38219, cache_ttl: 3600, ...over });

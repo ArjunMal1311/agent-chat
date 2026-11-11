@@ -3,8 +3,8 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import test, { after, before, describe } from "node:test";
-import { makeAgent } from "../src/main/agents.ts";
-import { startServer, type Served } from "../src/main/server.ts";
+import { makeAgent } from "../src/main/agents/agents.ts";
+import { startServer, type Served } from "../src/main/server/server.ts";
 import { defaultAgents, makeHub, tmp, waitFor } from "./helpers.ts";
 
 let served: Served;

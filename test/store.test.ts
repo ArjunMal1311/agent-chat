@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import path from "node:path";
 import test, { describe } from "node:test";
 import { DatabaseSync } from "node:sqlite";
-import { Store } from "../src/main/store.ts";
+import { Store } from "../src/main/db/store.ts";
 import { tmp } from "./helpers.ts";
 
 const usage = (over = {}) => ({ cost: 0.1, in: 100, out: 10, seconds: 2, model: "sonnet", cache_read: 60, cache_write: 20, cache_ttl: 3600, ...over });

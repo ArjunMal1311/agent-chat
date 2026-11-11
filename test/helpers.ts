@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { makeAgent, type Agent } from "../src/main/agents.ts";
-import { Bus } from "../src/main/bus.ts";
-import { Hub, type HubOptions } from "../src/main/hub.ts";
-import type { Runner } from "../src/main/runner.ts";
-import { Store } from "../src/main/store.ts";
+import { makeAgent, type Agent } from "../src/main/agents/agents.ts";
+import { Bus } from "../src/main/hub/bus.ts";
+import { Hub, type HubOptions } from "../src/main/hub/hub.ts";
+import type { Runner } from "../src/main/runner/runner.ts";
+import { Store } from "../src/main/db/store.ts";
 
 export const tmp = (prefix = "ac-") => fs.mkdtempSync(path.join(os.tmpdir(), prefix));
 

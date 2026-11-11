@@ -1,7 +1,7 @@
 // Runs one agent turn through the Claude Code CLI (`claude -p`) or OpenAI Codex (`codex exec`), streaming what it does.
 import { spawn } from "node:child_process";
 import readline from "node:readline";
-import type { Agent } from "./agents.ts";
+import type { Agent } from "../agents/agents.ts";
 
 export const RULES =
   "\n\nYou are an agent in a chat app. Reply the way you would in a chat message: short, plain, " +

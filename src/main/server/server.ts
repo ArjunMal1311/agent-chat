@@ -3,8 +3,8 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
-import type { Hub } from "./hub.ts";
-import { RunError } from "./runner.ts";
+import type { Hub } from "../hub/hub.ts";
+import { RunError } from "../runner/runner.ts";
 
 const MAX_BODY = 64 * 1024;
 
