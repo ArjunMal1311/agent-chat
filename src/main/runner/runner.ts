@@ -1,16 +1,8 @@
 // Runs one agent turn through the Claude Code CLI (`claude -p`) or OpenAI Codex (`codex exec`), streaming what it does.
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { LEAN_FLAGS, RULES, SHELL_WRAPPER } from "../../constants/runner.ts";
 import type { Agent } from "../agents/agents.ts";
-
-export const RULES =
-  "\n\nYou are an agent in a chat app. Reply the way you would in a chat message: short, plain, " +
-  "no preamble. Never send, post, publish or message anyone yourself: you only prepare drafts and " +
-  "answers for the user, who sends everything by hand. If you learn something worth remembering " +
-  "for next time, add a separate line starting with REMEMBER: and the note.";
-
-// Agents never need skills or MCP servers, and loading them adds thousands of tokens to every call.
-export const LEAN_FLAGS = ["--disable-slash-commands", "--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"];
 
 export class RunError extends Error {}
 
@@ -173,7 +165,6 @@ export async function runClaude(agent: Agent, prompt: string, { onStep, onLimits
 // ---- OpenAI Codex (`codex exec --json`) ------------------------------------------------
 // Codex has no per-tool allowlist like Claude Code. What it may do is set by its sandbox
 // (read-only by default), so a Codex agent's `tools:` line is ignored.
-const SHELL_WRAPPER = /^\/(?:usr\/)?bin\/(?:ba|z)?sh\s+-l?c\s+(.*)$/s;
 
 export function plainCommand(command: unknown): string {
   let text = squash(command);
@@ -226,6 +217,7 @@ export async function runCodex(agent: Agent, prompt: string, { onStep }: Callbac
   const sandbox = agent.sandbox === "workspace-write" ? "workspace-write" : "read-only";
   const args = ["exec", "--json", "--skip-git-repo-check", "--ephemeral", "-s", sandbox];
   if (agent.model) args.push("-m", agent.model);
+  if (agent.search) args.push("-c", "web_search=live"); // Codex's own search tool; the sandbox itself still has no network
   args.push("-"); // the prompt comes on stdin
   const full = "<instructions>\n" + agent.prompt + RULES + "\n</instructions>\n\n" + prompt;
   const started = Date.now();

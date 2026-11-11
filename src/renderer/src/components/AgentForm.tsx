@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react";
+import { DEFAULT_FORM_TOOLS } from "../../../constants/ui";
 import { useStore } from "../store";
-
-const DEFAULT_TOOLS = ["Read", "Grep", "Glob"];
 
 export function AgentForm() {
   const { formOpen, closeForm, options, createAgent } = useStore();
@@ -99,7 +98,7 @@ export function AgentForm() {
                 <div className="checks">
                   {(options?.tools ?? []).map((t) => (
                     <label key={t.id} className="check">
-                      <input type="checkbox" name="tool" value={t.id} defaultChecked={DEFAULT_TOOLS.includes(t.id)} />
+                      <input type="checkbox" name="tool" value={t.id} defaultChecked={DEFAULT_FORM_TOOLS.includes(t.id)} />
                       <span>{t.label}</span>
                     </label>
                   ))}

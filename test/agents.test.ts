@@ -37,6 +37,19 @@ describe("agent files", () => {
     assert.throws(() => parse("---\nsandbox: danger-full-access\n---\nGo.", "x"), /sandbox must be one of/);
   });
 
+  test("notes_max is read, defaults to 30 and must be a sane number", () => {
+    assert.equal(parse("---\nnotes_max: 400\n---\nGo.", "x").notesMax, 400);
+    assert.equal(parse("Go.", "x").notesMax, 30);
+    for (const bad of ["0", "x", "5000", "1.5"]) assert.throws(() => parse(`---\nnotes_max: ${bad}\n---\nGo.`, "x"), /notes_max/);
+  });
+
+  test("search and log_cmd are read, and are off by default", () => {
+    const a = parse("---\nengine: codex\nsearch: true\nlog_cmd: ./x dm-log\n---\nGo.", "x");
+    assert.deepEqual([a.search, a.logCmd], [true, "./x dm-log"]);
+    const b = parse("---\nengine: codex\n---\nGo.", "x");
+    assert.deepEqual([b.search, b.logCmd], [false, ""]);
+  });
+
   test("schedule, message and before_run are read", () => {
     const a = parse("---\nschedule: 21:00\n---\nGo.", "x");
     assert.deepEqual([a.schedule, a.scheduleMessage], ["21:00", "Run your daily check."]);

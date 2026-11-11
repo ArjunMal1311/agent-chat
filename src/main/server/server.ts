@@ -3,27 +3,11 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import type { AddressInfo } from "node:net";
+import { DEFAULT_SERVER_PORT } from "../../constants/app.ts";
+import { MAX_BODY, MIME } from "../../constants/server.ts";
 import type { Hub } from "../hub/hub.ts";
 import { RunError } from "../runner/runner.ts";
 
-const MAX_BODY = 64 * 1024;
-
-const MIME: Record<string, string> = {
-  ".html": "text/html; charset=utf-8",
-  ".js": "text/javascript; charset=utf-8",
-  ".mjs": "text/javascript; charset=utf-8",
-  ".css": "text/css; charset=utf-8",
-  ".json": "application/json",
-  ".svg": "image/svg+xml",
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".ico": "image/x-icon",
-  ".woff2": "font/woff2",
-  ".map": "application/json",
-};
 const mimeOf = (file: string) => MIME[path.extname(file).toLowerCase()] ?? "application/octet-stream";
 
 type Dict = Record<string, any>;
@@ -57,7 +41,7 @@ export interface Served {
   close: () => Promise<void>;
 }
 
-export async function startServer(hub: Hub, staticDir: string, port = 8765, host = "127.0.0.1"): Promise<Served> {
+export async function startServer(hub: Hub, staticDir: string, port = DEFAULT_SERVER_PORT, host = "127.0.0.1"): Promise<Served> {
   const allowed = new Set<string>();
   const root = path.resolve(staticDir);
 

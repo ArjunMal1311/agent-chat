@@ -2,6 +2,7 @@
 // Starts the chat server on its own (no window). The desktop app starts the same server inside Electron.
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { DEFAULT_SERVER_PORT } from "../constants/app.ts";
 import { boot } from "./boot.ts";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -14,7 +15,7 @@ function option(name: string, fallback: string): string {
 export async function main(): Promise<void> {
   const booted = await boot({
     root,
-    port: Number(option("port", "8765")),
+    port: Number(option("port", String(DEFAULT_SERVER_PORT))),
     agentsDir: path.resolve(option("agents", "agents")),
     dataDir: path.resolve(option("data", "data")),
     staticDir: path.resolve(option("static", path.join(root, "out", "renderer"))),

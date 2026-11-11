@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Avatar } from "./Avatar";
-import { CACHE_NOTE, USAGE_NOTE, dayLabel, fmtCountdown, fmtMoney, fmtTime, fmtTokens, pctText, runUsageText, shortModel } from "../lib/format";
+import { CACHE_NOTE, USAGE_NOTE } from "../../../constants/ui";
+import { dayLabel, fmtCountdown, fmtMoney, fmtTime, fmtTokens, pctText, runUsageText, shortModel } from "../lib/format";
 import { Rich } from "./Rich";
 import { useStore } from "../store";
 import type { Chat, Message as Msg } from "../lib/types";

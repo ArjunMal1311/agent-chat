@@ -114,6 +114,105 @@ describe("chat turns", () => {
     assert.equal(hub.store.last("planner")!.body, "ok");
   });
 
+  describe("/sent and /reply", () => {
+    const DRAFTS =
+      "**Today's DMs: 2 of 8**\n\n1. **@corecodevibes** · 4.9k followers\nReel: \"x\" · https://i/p/1/\nDM: hey steffen, saw your reel on x. would you try it?\nWhy: fits\n\n" +
+      "2. **@arnitly** · 49.9k followers\nReel: \"y\"\nDM: hey arnav, saw your reel on y. would you try it?\nWhy: fits\n";
+    const setup = (output = "RESULT: ok") => {
+      const calls: string[][] = [];
+      const ran: string[] = [];
+      const hub = makeHub(async (_a, prompt) => (ran.push(prompt), "model answer"), {
+        poster: async (argv) => (calls.push(argv), [0, "noise from the db\n" + output + "\n"]),
+      });
+      hub.agents.get("planner")!.logCmd = "./tool dm-log";
+      hub.store.add("planner", "planner", DRAFTS);
+      return { hub, calls, ran };
+    };
+
+    test("/sent logs each drafted DM by code, and the model is not called", async () => {
+      const { hub, calls, ran } = setup();
+      hub.send("planner", "/sent @corecodevibes arnitly");
+      await hub.settle();
+      assert.deepEqual(calls, [
+        ["./tool", "dm-log", "sent", "corecodevibes", "--text", "hey steffen, saw your reel on x. would you try it?"],
+        ["./tool", "dm-log", "sent", "arnitly", "--text", "hey arnav, saw your reel on y. would you try it?"],
+      ]);
+      assert.equal(ran.length, 0);
+      assert.equal(hub.store.last("planner")!.body, "ok\nok"); // only the RESULT lines, not the noise
+    });
+
+    test("a draft whose text starts on the line after DM: is found too", async () => {
+      const { hub, calls } = setup();
+      hub.store.add("planner", "planner", "1. **@newperson** · 3k followers\nReel: \"z\"\nDM:  \nhey sam, saw your reel on z. would you try it?  \nWhy: fits\n");
+      hub.send("planner", "/sent newperson");
+      await hub.settle();
+      assert.deepEqual(calls[0].slice(2), ["sent", "newperson", "--text", "hey sam, saw your reel on z. would you try it?"]);
+    });
+
+    test("/sent @a | text logs what was really sent, for one handle", async () => {
+      const { hub, calls } = setup();
+      hub.send("planner", "/sent @corecodevibes | hey steffen, my own words | with a pipe");
+      await hub.settle();
+      assert.deepEqual(calls[0].slice(3), ["corecodevibes", "--text", "hey steffen, my own words | with a pipe"]);
+      hub.send("planner", "/sent @a @b | text");
+      await hub.settle();
+      assert.equal(calls.length, 1);
+      assert.match(hub.store.last("planner")!.body, /exactly one handle/);
+    });
+
+    test("/reply needs one handle and the words, and logs them", async () => {
+      const { hub, calls } = setup();
+      hub.send("planner", "/reply @arnitly");
+      await hub.settle();
+      assert.equal(calls.length, 0);
+      hub.send("planner", "/reply @arnitly | sure, send it");
+      await hub.settle();
+      assert.deepEqual(calls[0].slice(2), ["reply", "arnitly", "--text", "sure, send it"]);
+    });
+
+    test("a person with no draft in the chat is not logged, and bad handles are refused", async () => {
+      const { hub, calls } = setup();
+      hub.send("planner", "/sent @someoneelse");
+      await hub.settle();
+      assert.equal(calls.length, 0);
+      assert.match(hub.store.last("planner")!.body, /no draft/);
+      hub.send("planner", "/sent @bad;worse");
+      await hub.settle();
+      assert.equal(calls.length, 0);
+      assert.match(hub.store.last("planner")!.body, /could not read the handles/);
+    });
+
+    test("a failing log command is reported, never hidden", async () => {
+      const hub = makeHub(async () => "x", { poster: async () => [1, "Traceback: boom"] });
+      hub.agents.get("planner")!.logCmd = "./tool dm-log";
+      hub.store.add("planner", "planner", DRAFTS);
+      hub.send("planner", "/sent @arnitly");
+      await hub.settle();
+      assert.match(hub.store.last("planner")!.body, /failed \(exit 1\)/);
+    });
+
+    test("without log_cmd the message is just a message for the agent", async () => {
+      const ran: string[] = [];
+      const hub = makeHub(async (_a, prompt) => (ran.push(prompt), "ok"));
+      hub.send("planner", "/sent @arnitly");
+      await hub.settle();
+      assert.equal(ran.length, 1);
+    });
+  });
+
+  test("an agent with a higher notes_max keeps more notes than the default 30", async () => {
+    const notes = Array.from({ length: 50 }, (_, i) => `REMEMBER: scouted company${i}`).join("\n");
+    const hub = makeHub(async () => "done\n" + notes);
+    hub.agents.get("planner")!.notesMax = 100;
+    hub.send("planner", "go");
+    await hub.settle();
+    assert.equal(hub.notesCount("planner"), 50);
+    const small = makeHub(async () => "done\n" + notes);
+    small.send("planner", "go");
+    await small.settle();
+    assert.equal(small.notesCount("planner"), 30);
+  });
+
   test("a runner error is shown in the chat", async () => {
     const hub = makeHub(async () => {
       throw new Error("claude is down");

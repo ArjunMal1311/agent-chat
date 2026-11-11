@@ -147,6 +147,15 @@ describe("runCodex", () => {
     assert.match(got.prompt, /what is in here\?/);
   });
 
+  test("search turns on Codex live web search, and is off by default", async () => {
+    const run = async (search: boolean) =>
+      JSON.parse((await withPath(fakeCli("codex", CODEX_STREAM), () => runCodex(makeAgent("t", { timeout: 20, engine: "codex", search }), "x"))).text).argv as string[];
+    const on = await run(true);
+    assert.equal(on[on.indexOf("-c") + 1], "web_search=live");
+    assert.ok(on.indexOf("-c") < on.indexOf("-"), "the option comes before the prompt marker");
+    assert.ok(!(await run(false)).includes("-c"));
+  });
+
   test("the sandbox cannot be widened by a bad value", async () => {
     const agent = makeAgent("t", { timeout: 20, engine: "codex", sandbox: "danger-full-access" as any });
     const got = JSON.parse((await withPath(fakeCli("codex", CODEX_STREAM), () => runCodex(agent, "x"))).text);

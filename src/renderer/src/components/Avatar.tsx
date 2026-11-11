@@ -1,6 +1,8 @@
 // Avatars: little characters drawn as inline SVG (no images, no network). The colours come from the agent's name;
 // the agents that ship with the app get a character that suits the job, any other agent gets one picked from its name.
 // The SVG text is built only from numbers derived from the name, never from message content.
+import { FIXED_SPECIES } from "../../../constants/ui";
+
 interface Colors {
   main: string;
   dark: string;
@@ -80,7 +82,6 @@ const SPECIES: Record<string, Draw> = {
     `<path d="M16 42 Q32 56 48 42" fill="none" stroke="${c.dark}" stroke-width="2.2" stroke-linecap="round"/>` + blush(13, 51, 44, c),
 };
 const SPECIES_NAMES = Object.keys(SPECIES);
-const FIXED_SPECIES: Record<string, string> = { manager: "robot", planner: "owl", reviewer: "cat", researcher: "frog", writer: "bear", "codex-helper": "alien" };
 
 export function Avatar({ name, small, working }: { name: string; small?: boolean; working?: boolean }) {
   const h = name === "manager" ? 14 : hue(name); // the Manager always wears the app's clay colour

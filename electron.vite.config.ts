@@ -1,8 +1,9 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "electron-vite";
 import { resolve } from "node:path";
+import { DEFAULT_APP_PORT } from "./src/constants/app.ts";
 
-const PORT = Number(process.env.AGENT_CHAT_PORT || 48765);
+const PORT = Number(process.env.AGENT_CHAT_PORT || DEFAULT_APP_PORT);
 
 export default defineConfig({
   main: {

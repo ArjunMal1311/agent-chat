@@ -7,6 +7,8 @@
 - Renderer reorganised into `components/`, `store/`, `lib/` and `styles/`.
 - Private agents (`agents/`) and local data (`data/`) are no longer tracked by git; `examples/agents/` is what ships.
 - Added `docs/ARCHITECTURE.md`.
+- All constants moved into one folder, `src/constants/` (agents, hub, runner, server, db, app, ui). The two port numbers are now defined once each.
+- `Empty` moved out of `App.tsx` into `components/Empty.tsx`.
 - `src/main/` grouped into `agents/`, `runner/`, `hub/`, `server/` and `db/`.
 - The page now checks every API reply with zod (`lib/schemas.ts`) and reports the route and field when a reply has the wrong shape; the renderer types are derived from the schemas.
 

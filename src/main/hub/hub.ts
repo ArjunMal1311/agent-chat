@@ -5,36 +5,23 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { type Agent, FORM_MODELS, FORM_TOOLS, agentFromForm, makeAgent } from "../agents/agents.ts";
+import { FORM_MODELS, FORM_TOOLS } from "../../constants/agents.ts";
+import {
+  BEFORE_RUN_TIMEOUT,
+  COMPACT_PROMPT,
+  MAX_REVIEWED_CHARS,
+  MAX_TRANSCRIPT_CHARS,
+  MIN_TO_COMPACT,
+  POST_RE,
+  PUBLISH_TIMEOUT,
+  REMEMBER_RE,
+  REVIEW_PROMPT,
+} from "../../constants/hub.ts";
+import { type Agent, agentFromForm, makeAgent } from "../agents/agents.ts";
 import type { Bus } from "./bus.ts";
 import { type CodexLimits, readCodexLimits } from "../runner/codexlimits.ts";
 import type { RunResult, Runner, Usage } from "../runner/runner.ts";
 import type { Message, Store } from "../db/store.ts";
-
-const REMEMBER_RE = /^REMEMBER:\s*(.+)$/gm;
-const POST_RE = /^POST_READY:\s*(.+)$/gm;
-const PUBLISH_TIMEOUT = 900;
-const BEFORE_RUN_TIMEOUT = 180; // a before_run command that takes longer than this is cut off and reported as failed
-const MAX_NOTES = 30; // an agent keeps its newest notes only, so its notes file cannot grow without limit
-const MAX_REVIEWED_CHARS = 12000;
-const MIN_TO_COMPACT = 4; // fewer messages than this is not worth a model call
-const MAX_TRANSCRIPT_CHARS = 60000;
-
-const COMPACT_PROMPT =
-  "You compress a chat into a short briefing so the same agent can carry on without the full history. " +
-  "Keep: decisions made, facts learned, what the user wants and prefers, open tasks and their state, and any " +
-  "names, ids, handles, dates and numbers exactly as written. Drop greetings, tool chatter and anything finished " +
-  "or superseded. Write plain bullet points, at most 250 words, no preamble. If an earlier summary is given, " +
-  "fold it in rather than repeating it.";
-const REVIEW_PROMPT =
-  "You are the Manager, checking an agent's answer before the user relies on it. You are given what the user asked, " +
-  "the task you sent, the agent's job and its answer. Answer with ONLY one JSON object: " +
-  '{"verdict": "ok" or "fix", "summary": "<one short sentence>", "issues": ["<specific problem>", ...]}. ' +
-  'Use "fix" only for a concrete problem: the answer does not do what the task asked, it breaks the agent\'s stated job, ' +
-  "it states numbers, facts, names or quotes that the task does not give and that are not marked as unknown, " +
-  "it says it sent, posted or published something (agents only prepare drafts), it is cut off, or it says it could not do the task. " +
-  "Do not nitpick style or length. You cannot check facts outside the text: if unsure, say so in the summary and still use " +
-  '"ok". "issues" is empty when the verdict is "ok".';
 
 type Dict = Record<string, any>;
 
@@ -306,7 +293,7 @@ export class Hub {
       const p = this.memoryPath(name);
       const existing = fs.existsSync(p) ? fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim()) : [];
       const lines = [...existing, ...notes.map((n) => `- ${n.trim()}`)];
-      fs.writeFileSync(p, lines.slice(-MAX_NOTES).join("\n") + "\n");
+      fs.writeFileSync(p, lines.slice(-this.agents.get(name)!.notesMax).join("\n") + "\n");
     }
     return text.replace(REMEMBER_RE, "").trim();
   }
@@ -339,8 +326,61 @@ export class Hub {
     if (!text) throw new Error("empty message");
     const msg = this.store.add(chat, "you", text);
     this.notify(chat);
+    const agent = this.agents.get(chat)!;
+    if (agent.logCmd && /^\/(sent|reply)(\s|$)/i.test(text)) {
+      this.spawn(this.logTurn(chat, agent, text)); // done by the app in code: the model is never involved
+      return msg;
+    }
     this.spawn(chat === "manager" ? this.managerTurn(text) : this.agentTurn(chat, text));
     return msg;
+  }
+
+  /** The `**@handle**` block of the newest message in this chat that has one, and its `DM:` line. */
+  findDraft(chat: string, handle: string): string {
+    const h = handle.replace(/^@/, "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const block = new RegExp("\\*\\*@?" + h + "\\*\\*[^\\n]*\\n(?:(?!\\*\\*@)[^\\n]*\\n)*?DM:[ \\t]*(?:\\n[ \\t]*)?([^\\n]+)", "i");
+    const msgs = this.store.messages(chat, 60);
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      if (msgs[i].sender !== chat) continue;
+      const m = block.exec(msgs[i].body + "\n");
+      if (m) return m[1].trim();
+    }
+    return "";
+  }
+
+  /** `/sent @a @b` logs the drafted DM of each; `/sent @a | exact text` logs what you really sent; `/reply @a | their words`. */
+  private async logTurn(chat: string, agent: Agent, text: string): Promise<void> {
+    const say = (body: string) => {
+      this.store.add(chat, chat, body);
+      this.notify(chat);
+    };
+    const m = /^\/(sent|reply)\s*(.*)$/is.exec(text)!;
+    const action = m[1].toLowerCase();
+    const [left, ...rest] = m[2].split("|");
+    const own = rest.join("|").trim();
+    const handles = left.split(/[\s,]+/).filter(Boolean);
+    const usage = action === "sent" ? "Use /sent @handle @handle (logs the drafts above) or /sent @handle | the exact message you sent." : "Use /reply @handle | what they wrote back.";
+    if (!handles.length || handles.some((h) => !/^@?[A-Za-z0-9._]{1,30}$/.test(h))) return say("I could not read the handles. " + usage);
+    if (action === "reply" && (handles.length !== 1 || !own)) return say(usage);
+    if (own && handles.length !== 1) return say("A message of your own goes with exactly one handle. " + usage);
+    const lines: string[] = [];
+    for (const handle of handles) {
+      const body = own || this.findDraft(chat, handle);
+      if (!body) {
+        lines.push(`@${handle.replace(/^@/, "")}: I found no draft for this person in this chat, so nothing was logged. Use /sent @${handle.replace(/^@/, "")} | the exact message.`);
+        continue;
+      }
+      let code: number;
+      let output: string;
+      try {
+        [code, output] = await this.poster([...shellSplit(agent.logCmd), action, handle.replace(/^@/, ""), "--text", body], agent.cwd, 60);
+      } catch (e) {
+        [code, output] = [1, String(e)];
+      }
+      const results = output.split("\n").filter((l) => l.startsWith("RESULT: ")).map((l) => l.slice(8));
+      lines.push(...(results.length ? results : [`@${handle.replace(/^@/, "")}: the log command failed (exit ${code}). ${tail(output, 2)}`]));
+    }
+    say(lines.join("\n"));
   }
 
   /** Wipe a chat completely: messages, usage history, the agent's notes and its saved summary. */

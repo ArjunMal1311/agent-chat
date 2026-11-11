@@ -5,9 +5,8 @@
 // the reply also holds an account id, which is dropped here and never stored.
 import { spawn } from "node:child_process";
 import readline from "node:readline";
+import { CODEX_CLIENT } from "../../constants/runner.ts";
 import { RunError } from "./runner.ts";
-
-const CLIENT = { name: "agent-chat", title: "Agent Chat", version: "1.0" };
 
 export interface CodexWindow {
   label: string;
@@ -92,7 +91,7 @@ export async function readCodexLimits(timeoutSeconds = 30): Promise<CodexLimits>
     });
 
   try {
-    await request(1, "initialize", { clientInfo: CLIENT });
+    await request(1, "initialize", { clientInfo: CODEX_CLIENT });
     proc.stdin!.write(JSON.stringify({ method: "initialized" }) + "\n");
     const result = await request(2, "account/rateLimits/read", null);
     const data = normalize(result.rateLimits);

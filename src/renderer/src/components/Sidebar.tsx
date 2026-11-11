@@ -1,6 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Avatar } from "./Avatar";
-import { USAGE_NOTE, fmtCountdown, fmtListTime, fmtMoney, previewOf } from "../lib/format";
+import { USAGE_NOTE } from "../../../constants/ui";
+import { fmtCountdown, fmtListTime, fmtMoney, previewOf } from "../lib/format";
 import { useStore } from "../store";
 import type { Chat, LimitWindow } from "../lib/types";
 
@@ -10,7 +11,7 @@ function ChatRow({ c }: { c: Chat }) {
   const p = previewOf(c);
   return (
     <li
-      className={"chat" + (c.name === current ? " active" : "") + (c.unread ? " unread" : "")}
+      className={"chat" + (c.name === current ? " active" : "") + (c.unread ? " unread" : "") + (c.working ? " working" : "")}
       tabIndex={0}
       onClick={() => void openChat(c.name)}
       onKeyDown={(e) => {
@@ -38,116 +39,148 @@ function ChatRow({ c }: { c: Chat }) {
   );
 }
 
-function limitClass(w?: LimitWindow | null) {
-  if (!w) return "ub-item";
-  return "ub-item" + (w.used >= 0.85 ? " high" : w.used >= 0.6 ? " warn" : "");
-}
+const level = (w?: LimitWindow | null) => (!w ? "" : w.used >= 0.85 ? " high" : w.used >= 0.6 ? " warn" : "");
 
-function LimitBody({ label, w }: { label: string; w?: LimitWindow | null }) {
+/** One limit on one line: label, thin bar, percent, time to reset. */
+function LimitRow({ label, w }: { label: string; w?: LimitWindow | null }) {
   if (!w)
     return (
-      <div className="ub-row">
+      <div className="ub-line">
         <span className="ub-label">{label}</span>
-        <span className="ub-sub">no data yet</span>
+        <span className="ub-note">no data yet</span>
       </div>
     );
   const left = w.resets_at ? w.resets_at - Date.now() / 1000 : null;
   if (left !== null && left <= 0)
     return (
-      <div className="ub-row">
+      <div className="ub-line">
         <span className="ub-label">{label}</span>
-        <span className="ub-sub">reset since the last check</span>
+        <span className="ub-note">reset since the last check</span>
       </div>
     );
   const pct = Math.round(w.used * 100);
   return (
-    <>
-      <div className="ub-row">
-        <span className="ub-label">{label}</span>
-        <span className="ub-pct">{pct}%</span>
-      </div>
-      <div className="ub-bar" aria-hidden="true">
+    <div className={"ub-line" + level(w)} title={left === null ? undefined : `${label}: resets in ${fmtCountdown(left)}`}>
+      <span className="ub-label">{label}</span>
+      <div className="ub-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.min(pct, 100)} aria-label={`${label} usage`}>
         <i style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
-      {left === null ? null : <div className="ub-sub">resets in {fmtCountdown(left)}</div>}
-    </>
+      <span className="ub-pct">{pct}%</span>
+      <span className="ub-reset">{left === null ? "" : fmtCountdown(left)}</span>
+    </div>
   );
 }
 
-const ago = (updated: number) => {
-  const mins = Math.floor((Date.now() / 1000 - updated) / 60);
-  return mins;
+const minutesAgo = (updated: number) => Math.floor((Date.now() / 1000 - updated) / 60);
+const agoText = (mins: number | null) => (mins === null ? "" : mins < 1 ? "just now" : `${mins} min ago`);
+
+function RefreshButton({ title, onRun }: { title: string; onRun: () => Promise<void> }) {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      className={"ub-refresh" + (busy ? " busy" : "")}
+      type="button"
+      title={title}
+      aria-label={title}
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await onRun();
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true">
+        <path d="M20 12a8 8 0 1 1-2.6-5.9M20 4v4.5h-4.5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </button>
+  );
+}
+
+const readCollapsed = () => {
+  try {
+    return localStorage.getItem("usageCollapsed") === "1";
+  } catch {
+    return false;
+  }
 };
 
 function UsageBar() {
   const { limits, codex, refreshClaudeLimits, refreshCodexLimits } = useStore();
+  const [collapsed, setCollapsed] = useState(readCollapsed);
   const five = limits.windows.five_hour;
   const week = limits.windows.seven_day;
-  const claudeAge = limits.updated ? ago(limits.updated) : null;
-  const codexAge = codex?.updated ? ago(codex.updated) : null;
-  const press = (fn: () => Promise<void>) => async (e: React.MouseEvent<HTMLButtonElement>) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    btn.textContent = "Refreshing…";
+  const claudeAge = limits.updated ? minutesAgo(limits.updated) : null;
+  const codexAge = codex?.updated ? minutesAgo(codex.updated) : null;
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
     try {
-      await fn();
-    } finally {
-      btn.disabled = false;
-      btn.textContent = "Refresh";
+      localStorage.setItem("usageCollapsed", next ? "1" : "0");
+    } catch {
+      /* not remembered */
     }
   };
+  // Folded: one line with every number, so the panel costs a single row.
+  const summary: { key: string; text: string; w?: LimitWindow | null }[] = [
+    { key: "5h", text: "5h", w: five },
+    { key: "7d", text: "7d", w: week },
+    ...(codex?.windows ?? []).map((w) => ({ key: "codex-" + w.label, text: "Codex", w })),
+  ];
   return (
-    <footer id="usagebar" className="usagebar" role="status" aria-label="Claude Code plan usage">
-      <div className="ub-head">
+    <footer id="usagebar" className={"usagebar" + (collapsed ? " collapsed" : "")} role="status" aria-label="Plan usage">
+      <button className="ub-head" type="button" onClick={toggle} aria-expanded={!collapsed} title={collapsed ? "Show plan usage" : "Hide plan usage"}>
+        <svg className="ub-chevron" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+          <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
         <span className="ub-title">Plan usage</span>
-      </div>
-      <div className="ub-group-title">
-        <span>Claude</span>
-        <button className="ub-btn" type="button" title="Runs one tiny call so Claude Code reports fresh numbers. It uses a little usage itself." onClick={press(refreshClaudeLimits)}>
-          Refresh
-        </button>
-      </div>
-      <div className={limitClass(five)}>
-        <LimitBody label="5-hour" w={five} />
-      </div>
-      <div className={limitClass(week)}>
-        <LimitBody label="7-day" w={week} />
-      </div>
-      <div className="ub-age">
-        {claudeAge === null ? "Updates after any agent runs" : (claudeAge < 1 ? "updated just now" : `updated ${claudeAge} min ago`) + (claudeAge >= 30 ? " · may be out of date" : "")}
-      </div>
-      {codex ? (
-        <div className="ub-codex">
-          <div className="ub-group-title">
-            <span>
-              Codex <em>{codex.plan ? codex.plan + " plan" : ""}</em>
+        {collapsed ? (
+          <span className="ub-mini">
+            {summary.map((s) => (
+              <span key={s.key} className={"ub-chip" + level(s.w)}>
+                {s.text} {s.w ? Math.round(s.w.used * 100) + "%" : "–"}
+              </span>
+            ))}
+          </span>
+        ) : null}
+      </button>
+      {collapsed ? null : (
+        <>
+          <div className="ub-group">
+            <span className="ub-group-name">Claude</span>
+            <span className={"ub-age" + (claudeAge !== null && claudeAge >= 30 ? " stale" : "")} title={claudeAge !== null && claudeAge >= 30 ? "May be out of date" : undefined}>
+              {claudeAge === null ? "updates after any agent runs" : agoText(claudeAge)}
             </span>
-            <button className="ub-btn" type="button" title="Asks Codex for your current numbers. This runs no model, so it costs nothing." onClick={press(refreshCodexLimits)}>
-              Refresh
-            </button>
+            <RefreshButton title="Refresh Claude usage: runs one tiny call, which uses a little usage itself" onRun={refreshClaudeLimits} />
           </div>
-          <div className="ub-codex-list">
-            {codex.windows?.length ? (
-              codex.windows.map((w) => (
-                <div key={w.label} className={limitClass(w)}>
-                  <LimitBody label={w.label ?? "limit"} w={w} />
+          <LimitRow label="5-hour" w={five} />
+          <LimitRow label="7-day" w={week} />
+          {codex ? (
+            <>
+              <div className="ub-group">
+                <span className="ub-group-name">
+                  Codex{codex.plan ? <em>{codex.plan}</em> : null}
+                </span>
+                <span className="ub-age">{codex.error ? "" : agoText(codexAge)}</span>
+                <RefreshButton title="Refresh Codex usage: runs no model, so it costs nothing" onRun={refreshCodexLimits} />
+              </div>
+              {codex.windows?.length ? (
+                codex.windows.map((w) => <LimitRow key={w.label} label={w.label ?? "limit"} w={w} />)
+              ) : (
+                <div className="ub-note">{codex.error ? "No numbers yet" : "Reading…"}</div>
+              )}
+              {codex.error ? (
+                <div className="ub-note error">
+                  Could not read Codex: {codex.error}
+                  {codex.updated ? " · showing the last numbers" : ""}
                 </div>
-              ))
-            ) : (
-              <div className="ub-sub">{codex.error ? "No numbers yet" : "Reading…"}</div>
-            )}
-          </div>
-          <div className={"ub-age" + (codex.error ? " error" : "")}>
-            {codex.error
-              ? `Could not read Codex: ${codex.error}${codex.updated ? " · showing the last numbers" : ""}`
-              : codexAge === null
-                ? ""
-                : codexAge < 1
-                  ? "updated just now"
-                  : `updated ${codexAge} min ago`}
-          </div>
-        </div>
-      ) : null}
+              ) : null}
+            </>
+          ) : null}
+        </>
+      )}
     </footer>
   );
 }

@@ -2,6 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { ENGINES, FORM_MODELS, FORM_TOOLS, MAX_PROMPT, RESERVED_NAMES, SANDBOXES } from "../../constants/agents.ts";
 
 export interface Agent {
   name: string;
@@ -20,10 +21,10 @@ export interface Agent {
   schedule: string; // "HH:MM" local time: the app sends scheduleMessage to this agent once a day while it is running
   scheduleMessage: string;
   beforeRun: string; // a command the app runs (in cwd) before every request to this agent. File-only
+  logCmd: string; // run by the app (never by the model) for the chat commands /sent and /reply in this agent's chat. File-only
+  search: boolean; // codex only: turn on live web search for this agent
+  notesMax: number; // how many REMEMBER notes the agent keeps (newest win). Default 30
 }
-
-export const ENGINES = ["claude", "codex"] as const;
-export const SANDBOXES = ["read-only", "workspace-write"] as const; // never "danger-full-access": a chat agent has no business there
 
 export function makeAgent(name: string, over: Partial<Agent> = {}): Agent {
   return {
@@ -43,6 +44,9 @@ export function makeAgent(name: string, over: Partial<Agent> = {}): Agent {
     schedule: "",
     scheduleMessage: "",
     beforeRun: "",
+    logCmd: "",
+    search: false,
+    notesMax: 30,
     ...over,
   };
 }
@@ -84,6 +88,8 @@ export function parse(text: string, name: string): Agent {
   if (schedule && !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule)) {
     throw new Error(`agents/${name}.md: schedule must be a 24-hour time like 21:00 (got '${schedule}')`);
   }
+  const notesMax = meta.notes_max === undefined ? 30 : Number(meta.notes_max);
+  if (!Number.isInteger(notesMax) || notesMax < 1 || notesMax > 2000) throw new Error(`agents/${name}.md: notes_max must be a whole number from 1 to 2000`);
   const timeout = meta.timeout === undefined ? 300 : Number(meta.timeout);
   if (!Number.isInteger(timeout)) throw new Error(`agents/${name}.md: timeout must be a whole number of seconds`);
   return makeAgent(name, {
@@ -92,6 +98,9 @@ export function parse(text: string, name: string): Agent {
     schedule,
     scheduleMessage: meta.schedule_message || (schedule ? "Run your daily check." : ""),
     beforeRun: meta.before_run ?? "",
+    logCmd: meta.log_cmd ?? "",
+    search: (meta.search ?? "false").toLowerCase() === "true",
+    notesMax,
     title: meta.title ?? name.charAt(0).toUpperCase() + name.slice(1),
     goal: meta.goal ?? "",
     tools: (meta.tools ?? "").split(",").map((t) => t.trim()).filter(Boolean),
@@ -142,19 +151,6 @@ export function loadAgents(directory: string): Map<string, Agent> {
 }
 
 // ---- agents made in the app ------------------------------------------------------------
-// The form deliberately offers less than a hand-written file: read-only Claude tools, Sonnet or Haiku (never
-// Opus), and Codex only in its read-only or workspace-write sandbox. Shell commands (Bash(...) rules), editing
-// tools, publish_cmd and post_root stay file-only, so nothing made from a web form can run or post anything.
-export const FORM_TOOLS: Record<string, string> = {
-  Read: "Read files",
-  Grep: "Search inside files",
-  Glob: "Find files by name",
-  WebSearch: "Search the web",
-  WebFetch: "Open web pages",
-};
-export const FORM_MODELS = ["sonnet", "haiku"] as const;
-export const RESERVED_NAMES = new Set(["manager", "probe"]);
-export const MAX_PROMPT = 8000;
 
 /** Collapse whitespace to one line (a newline would add front-matter keys) and drop the --- fence marker. */
 export function oneLine(value: unknown, limit: number): string {

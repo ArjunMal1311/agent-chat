@@ -77,6 +77,9 @@ model: <a Codex model>    # optional; leave out to use Codex's own default
 - **Compact chat** summarises with Sonnet (Claude Code), also for a Codex agent's chat.
 - Each run starts a fresh, unsaved Codex session (`--ephemeral`); like the Claude agents, it only sees the last 12 messages plus its notes. Codex still loads your `~/.codex/config.toml` and any `AGENTS.md` in the agent's folder.
 - Tested here: Codex CLI 0.166.0, one real read-only run plus tests with a fake `codex`.
+- **Network:** the Codex sandbox has no network, so a Codex agent cannot reach a database or fetch a page by shell. Two ways around it, neither of which widens the sandbox: `search: true` turns on Codex's own live web search (`-c web_search=live`), and `before_run:` runs a command in code before each request. Have that command write a file inside the agent's folder and tell the agent to read it, because `before_run` shows the agent only the last few lines of output.
+- **Chat commands:** `log_cmd: <command>` (file-only) makes `/sent @a @b`, `/sent @a | exact text` and `/reply @a | their words` in that agent's chat run `<command> sent|reply <handle> --text <text>` in code, without calling the model. `/sent @a` takes the text from the `DM:` line under `**@a**` in the agent's latest message that has one. The command should print its answer as `RESULT: ...` lines; only those are shown.
+
 
 ## The Manager runs everything
 

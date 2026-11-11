@@ -29,6 +29,14 @@ The map of the code. Start here before changing anything.
 
 ```
 src/
+  constants/             every fixed value, one file per area, shared by main and renderer
+    agents.ts            what an agent file / the New agent form may contain
+    hub.ts               hub limits, patterns and prompts
+    runner.ts            standing rules, CLI flags, Codex client info
+    server.ts            request size limit, served file types
+    db.ts                SQLite schema
+    app.ts               default ports
+    ui.ts                page text and choices: starter buttons, usage notes, avatar species
   main/                  server and desktop shell (Node)
     index.ts             Electron window: npm run app
     cli.ts               headless start: npm start
@@ -51,7 +59,7 @@ src/
     src/
       main.tsx           entry
       App.tsx            top-level layout
-      components/        AgentForm, Avatar, Rich, Sidebar, Thread
+      components/        AgentForm, Avatar, Empty, Rich, Sidebar, Thread (App.tsx only wires them together)
       store/             Zustand store (chat state, API calls, live updates)
       lib/               api client, zod schemas for every API reply, types derived from them, formatting helpers
       styles/            app.css
@@ -81,6 +89,8 @@ docs/                    this file
 ## Conventions
 
 - Within `src/main/`, `index.ts`, `cli.ts` and `boot.ts` are the entry points; everything else sits in a folder by responsibility. Keep new files in the folder that owns the concern, and make a new folder only when a second file needs it.
+- Fixed values (limits, prompts, regexes, ports, page text) go in `src/constants/`, in the file for their area, not at the top of the file that uses them. Import them from there; do not re-export them.
+- Components live in `components/`, one per file. `App.tsx` stays a thin shell: layout and live-update wiring only.
 - Tests are named after the main-process modules: `test/<module>.test.ts`. They use fake `claude` and `codex` binaries (see `test/helpers.ts`), so no network or AI login is needed.
 - Your own agents and chat data never go in git: `agents/` and `data/` are ignored. Anything meant to ship goes in `examples/agents/`.
 - Run `npm run typecheck` and `npm test` before committing.

@@ -1,10 +1,11 @@
 // Desktop shell (Electron): runs the chat server in this process and shows it in a window.
 import path from "node:path";
 import { app, BrowserWindow, dialog, nativeImage, shell } from "electron";
+import { DEFAULT_APP_PORT } from "../constants/app.ts";
 import { boot, type Booted } from "./boot.ts";
 
 const SMOKE = process.argv.includes("--smoke"); // start, load the page, print a result, exit
-const PORT = Number(process.env.AGENT_CHAT_PORT || 48765); // a fixed port keeps the page's origin, so settings like the theme stick
+const PORT = Number(process.env.AGENT_CHAT_PORT || DEFAULT_APP_PORT); // a fixed port keeps the page's origin, so settings like the theme stick
 const root = app.getAppPath();
 
 app.setName("Agent Chat");
