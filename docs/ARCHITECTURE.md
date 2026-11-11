@@ -1,0 +1,79 @@
+# Architecture and project structure
+
+The map of the code. Start here before changing anything.
+
+## How it fits together
+
+```
+┌─────────────────────────────────────────────┐
+│ Electron window  (src/main/index.ts)        │
+│   loads the page from the local server      │
+└───────────────┬─────────────────────────────┘
+                │ http://127.0.0.1:<port>  (JSON API + server-sent events)
+┌───────────────▼─────────────────────────────┐
+│ server.ts   web page + API + live stream    │
+│ hub.ts      sends messages, hand-offs,      │
+│             approvals, memory               │
+│ scheduler.ts  agents that run on their own  │
+│ store.ts    SQLite (node:sqlite)            │
+│ runner.ts   one turn via `claude -p` or     │
+│             `codex exec`                    │
+└─────────────────────────────────────────────┘
+```
+
+- The server runs on Node 24+ with only built-in HTTP and SQLite, so it has no server dependencies.
+- `boot.ts` starts the store, hub, scheduler and server. Both entry points use it: `cli.ts` (headless, `npm start`) and `index.ts` (the Electron window, `npm run app`).
+- The renderer only talks to the server over HTTP. It does not import anything from `src/main`.
+
+## Project structure
+
+```
+src/
+  main/                  server and desktop shell (Node)
+    index.ts             Electron window: npm run app
+    cli.ts               headless start: npm start
+    boot.ts              starts store, hub, scheduler and server
+    server.ts            web page + JSON API + live updates (server-sent events)
+    hub.ts               sends messages, runs agents, manager hand-offs, approvals, memory
+    runner.ts            runs one turn through `claude -p` or `codex exec`
+    agents.ts            reads agents/*.md, the New agent form rules, example seeding
+    store.ts             SQLite: messages, unread counts, working state, approvals, usage
+    scheduler.ts         agents that run on their own
+    codexlimits.ts       reads Codex's usage windows
+    bus.ts               in-process event bus behind the live stream
+  renderer/
+    index.html           page shell
+    src/
+      main.tsx           entry
+      App.tsx            top-level layout
+      components/        AgentForm, Avatar, Rich, Sidebar, Thread
+      store/             Zustand store (chat state, API calls, live updates)
+      lib/               api client, formatting helpers, API types
+      styles/            app.css
+test/                    node:test suite (npm test); helpers.ts holds fakes
+examples/agents/         the agents a fresh install starts with
+agents/                  your own agents (git-ignored)
+data/                    chat database and agent memory (git-ignored)
+resources/               app icon
+scripts/                 run.sh, install-launcher.sh
+docs/                    this file
+```
+
+## Where things live
+
+| You want to change | Look in |
+|---|---|
+| What an agent may do, or the front-matter fields | `src/main/agents.ts` |
+| How a turn runs, the tool allowlist, cost and token parsing | `src/main/runner.ts` |
+| Hand-offs, approvals, the Manager's check, memory notes | `src/main/hub.ts` |
+| An API route or the live stream | `src/main/server.ts` |
+| Schema or queries | `src/main/store.ts` |
+| A screen or component | `src/renderer/src/components/` |
+| Client state | `src/renderer/src/store/` |
+| API response types (renderer side) | `src/renderer/src/lib/types.ts` |
+
+## Conventions
+
+- Tests mirror the main-process modules: `test/<module>.test.ts`. They use fake `claude` and `codex` binaries (see `test/helpers.ts`), so no network or AI login is needed.
+- Your own agents and chat data never go in git: `agents/` and `data/` are ignored. Anything meant to ship goes in `examples/agents/`.
+- Run `npm run typecheck` and `npm test` before committing.

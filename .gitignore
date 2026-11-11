@@ -1,4 +1,17 @@
-data/
-__pycache__/
-*.pyc
-desktop/node_modules/
+# dependencies and build output
+node_modules/
+out/
+dist/
+.vite/
+
+# local state: chat database and agent memory
+/data/
+
+# your own agents stay on your machine; examples/agents/ is what ships
+/agents/
+
+# noise
+.env
+.env.*
+*.log
+.DS_Store
