@@ -1,0 +1,36 @@
+{
+  "name": "agent-chat",
+  "version": "0.2.0",
+  "private": true,
+  "description": "A chat for your AI agents: a Manager that hands work to the right agent, approvals, schedules and usage.",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "npm run build --silent && node src/main/cli.ts",
+    "app": "electron-vite build && electron .",
+    "smoke": "electron-vite build && electron . --smoke",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test \"test/*.test.ts\""
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "zustand": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.3.0",
+    "electron": "^45.2.3",
+    "electron-vite": "^6.0.0",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.7"
+  },
+  "main": "./out/main/index.js"
+}
