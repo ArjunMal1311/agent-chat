@@ -9,6 +9,10 @@ export const RULES =
 // Agents never need skills or MCP servers, and loading them adds thousands of tokens to every call.
 export const LEAN_FLAGS = ["--disable-slash-commands", "--strict-mcp-config", "--exclude-dynamic-system-prompt-sections"];
 
+// What a Claude chat may use at "full access" (sandbox: danger-full-access): every built-in tool, plus the MCP servers
+// listed in its folder's .mcp.json (added by name in runClaude), which is how an agent reaches things like Apify.
+export const FULL_ACCESS_TOOLS = ["Read", "Grep", "Glob", "Bash", "Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch"];
+
 // Codex wraps shell commands as `/bin/bash -lc <command>`; this takes the wrapper off so the chat shows the command itself.
 export const SHELL_WRAPPER = /^\/(?:usr\/)?bin\/(?:ba|z)?sh\s+-l?c\s+(.*)$/s;
 

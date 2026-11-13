@@ -1,7 +1,10 @@
 // Runs one agent turn through the Claude Code CLI (`claude -p`) or OpenAI Codex (`codex exec`), streaming what it does.
 import { spawn } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import readline from "node:readline";
-import { LEAN_FLAGS, RULES, SHELL_WRAPPER } from "../../constants/runner.ts";
+import { FILE_SANDBOXES } from "../../constants/agents.ts";
+import { FULL_ACCESS_TOOLS, LEAN_FLAGS, RULES, SHELL_WRAPPER } from "../../constants/runner.ts";
 import type { Agent } from "../agents/agents.ts";
 
 export class RunError extends Error {}
@@ -149,7 +152,23 @@ function runProcess(
 export async function runClaude(agent: Agent, prompt: string, { onStep, onLimits }: Callbacks = {}): Promise<RunResult> {
   const args = ["-p", "--output-format", "stream-json", "--verbose", ...LEAN_FLAGS, "--append-system-prompt", agent.prompt + RULES];
   if (agent.model) args.push("--model", agent.model);
-  if (agent.tools.length) args.push("--allowedTools", agent.tools.join(","));
+  let tools = agent.tools;
+  if (agent.sandbox === "danger-full-access") {
+    // Full access: every tool, and the MCP servers in the agent's folder (loaded only because a config is named here;
+    // --strict-mcp-config still blocks any server that is not in it).
+    tools = [...FULL_ACCESS_TOOLS];
+    try {
+      const config = path.join(agent.cwd, ".mcp.json");
+      const servers = Object.keys(JSON.parse(fs.readFileSync(config, "utf8")).mcpServers ?? {});
+      if (agent.cwd && servers.length) {
+        args.push("--mcp-config", config);
+        tools.push(...servers.map((name) => "mcp__" + name));
+      }
+    } catch {
+      // no .mcp.json in its folder: just the built-in tools
+    }
+  }
+  if (tools.length) args.push("--allowedTools", tools.join(","));
   let result: Dict | null = null;
   const { noise, code, timedOut } = await runProcess("claude", args, agent, prompt, (event) => {
     if (event.type === "result") result = event;
@@ -214,7 +233,8 @@ export function codexUsage(totals: Dict, model: string, seconds: number): Usage 
 /** Same contract as runClaude (`onLimits` is unused: Codex reports none). The agent's prompt goes in front of the
  *  conversation, because Codex has no append-system-prompt flag. */
 export async function runCodex(agent: Agent, prompt: string, { onStep }: Callbacks = {}): Promise<RunResult> {
-  const sandbox = agent.sandbox === "workspace-write" ? "workspace-write" : "read-only";
+  // Anything unrecognised falls back to read-only; full access only when the agent file asked for it by name.
+  const sandbox = (FILE_SANDBOXES as readonly string[]).includes(agent.sandbox) ? agent.sandbox : "read-only";
   const args = ["exec", "--json", "--skip-git-repo-check", "--ephemeral", "-s", sandbox];
   if (agent.model) args.push("-m", agent.model);
   if (agent.search) args.push("-c", "web_search=live"); // Codex's own search tool; the sandbox itself still has no network

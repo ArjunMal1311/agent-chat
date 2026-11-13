@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import path from "node:path";
 import test, { describe } from "node:test";
 import { makeAgent } from "../src/main/agents/agents.ts";
 import { RunError, describeCodexEvent, describeEvent, describeTool, extractUsage, parseClaudeOutput, runAgent, runClaude, runCodex } from "../src/main/runner/runner.ts";
@@ -58,6 +60,36 @@ describe("usage parsing", () => {
   test("error results and garbage raise", () => {
     assert.throws(() => parseClaudeOutput('{"is_error":true,"result":"rate limited"}'), /rate limited/);
     assert.throws(() => parseClaudeOutput("not json"), RunError);
+  });
+});
+
+describe("runClaude at full access", () => {
+  const argvOf = async (cwd: string) => {
+    const agent = makeAgent("t", { prompt: "job", tools: ["Read"], timeout: 20, sandbox: "danger-full-access", cwd });
+    return JSON.parse((await withPath(fakeCli("claude", STREAM), () => runClaude(agent, "hi"))).text) as string[];
+  };
+
+  test("every tool is allowed, plus the MCP servers named in the folder's .mcp.json", async () => {
+    const dir = tmp();
+    fs.writeFileSync(path.join(dir, ".mcp.json"), JSON.stringify({ mcpServers: { apify: { command: "x" }, other: { command: "y" } } }));
+    const argv = await argvOf(dir);
+    assert.equal(argv[argv.indexOf("--mcp-config") + 1], path.join(dir, ".mcp.json"));
+    const tools = argv[argv.indexOf("--allowedTools") + 1].split(",");
+    for (const t of ["Bash", "Edit", "Write", "WebFetch", "mcp__apify", "mcp__other"]) assert.ok(tools.includes(t), t);
+    assert.ok(argv.includes("--strict-mcp-config"), "servers outside that file stay blocked");
+  });
+
+  test("without a .mcp.json it is every built-in tool and no MCP config", async () => {
+    const argv = await argvOf(tmp());
+    assert.ok(!argv.includes("--mcp-config"));
+    assert.ok(argv[argv.indexOf("--allowedTools") + 1].split(",").includes("Bash"));
+  });
+
+  test("at any other level the file's own tool list is used", async () => {
+    const agent = makeAgent("t", { prompt: "job", tools: ["Read"], timeout: 20, sandbox: "read-only", cwd: tmp() });
+    const argv = JSON.parse((await withPath(fakeCli("claude", STREAM), () => runClaude(agent, "hi"))).text) as string[];
+    assert.equal(argv[argv.indexOf("--allowedTools") + 1], "Read");
+    assert.ok(!argv.includes("--mcp-config"));
   });
 });
 
@@ -157,9 +189,15 @@ describe("runCodex", () => {
   });
 
   test("the sandbox cannot be widened by a bad value", async () => {
-    const agent = makeAgent("t", { timeout: 20, engine: "codex", sandbox: "danger-full-access" as any });
+    const agent = makeAgent("t", { timeout: 20, engine: "codex", sandbox: "anything-goes" as any });
     const got = JSON.parse((await withPath(fakeCli("codex", CODEX_STREAM), () => runCodex(agent, "x"))).text);
     assert.equal(got.argv[got.argv.indexOf("-s") + 1], "read-only");
+  });
+
+  test("full access is passed to Codex only when the agent file named it", async () => {
+    const agent = makeAgent("t", { timeout: 20, engine: "codex", sandbox: "danger-full-access" });
+    const got = JSON.parse((await withPath(fakeCli("codex", CODEX_STREAM), () => runCodex(agent, "x"))).text);
+    assert.equal(got.argv[got.argv.indexOf("-s") + 1], "danger-full-access");
   });
 
   test("a failed turn raises with its message; no answer raises with what was printed", async () => {

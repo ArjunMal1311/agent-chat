@@ -57,6 +57,7 @@ The job prompt goes here.
 - `approval: true`: its answers arrive as drafts with Approve / Decline buttons.
 - `cwd`: the folder it works in.
 - `manager.md` is special: it reads the roster of the other agents and answers with JSON to hand work over.
+- **Agents can call each other.** Every agent is told who the other agents are (name, title, goal) and may end a reply with `HANDOFF: <agent> | <task>`. The app removes that line from the reply, sends the task to that agent's chat as "From <caller>: ...", runs it, and puts a note with its answer back in the caller's chat. The caller is not run again, so nothing waits or loops. Limits: at most 2 hand-offs per reply, each agent once, and a chain stops at 3 agents (A calls B, B may call C, C cannot call on); nobody already in the chain can be called again; the Manager cannot be called. An agent with `approval: true` still only produces a draft that you approve. Restrict who an agent may call with `can_call: video-maker, writer`, or turn it off with `can_call: none` (leave the line out to allow all). Each hand-off is a full run of the other agent, so it costs what that agent costs.
 - An agent can add a line starting `REMEMBER:`; it is hidden from the chat, saved in `data/memory/<agent>.md`, and shown to the agent on its next run.
 
 Restart the server after editing agent files. Optional `model:` line (for example `model: haiku`) picks the model for that agent.
@@ -67,11 +68,11 @@ Any agent can run on Codex instead of Claude Code: add `engine: codex` to its fi
 
 ```
 engine: codex
-sandbox: read-only        # or workspace-write; read-only is the default
+sandbox: read-only        # or workspace-write, or danger-full-access (file only); read-only is the default
 model: <a Codex model>    # optional; leave out to use Codex's own default
 ```
 
-- **Permissions are different.** Claude agents get an exact tool allowlist (`tools:`). Codex has no such list, so `tools:` is ignored for Codex agents and what they may touch is set by `sandbox:`. `read-only` lets it read files and run read-only commands; `workspace-write` also lets it edit files inside the agent's `cwd`, with no network. `danger-full-access` is refused. Keep agents that must not change anything, or that publish, on Claude.
+- **Permissions are different.** Claude agents get an exact tool allowlist (`tools:`). Codex has no such list, so `tools:` is ignored for Codex agents and what they may touch is set by `sandbox:`. `read-only` lets it read files and run read-only commands; `workspace-write` also lets it edit files inside the agent's `cwd`, with no network. `danger-full-access` removes the sandbox: the agent can run any command as you, with network, and touch any file you can. It can only be set by hand in the agent file or with the shield button at the top right of its chat (the + form never offers it, and the Manager cannot hand it out), so use it only for an agent you trust with everything it will read. On a chat running on Claude, full access means every tool (shell, editing, web) plus the MCP servers listed in the `.mcp.json` of the agent's `cwd`, such as Apify; without it, only the tools in its file. Keep agents that must not change anything, or that publish, on Claude.
 - **Cost and cache:** Codex reports tokens only, so its replies show no `~$` figure and the cache chip stays "unknown".
 - **Codex limits:** when at least one agent runs on Codex, the usage panel at the bottom of the sidebar gets a **Codex** group under the Claude one, with whichever windows your plan reports (this account shows one 30-day window; other plans show a 5-hour and a weekly one). The numbers come from Codex itself (`codex app-server`, request `account/rateLimits/read`), so reading them runs no model and costs nothing: they refresh after every Codex agent run, at most every 10 minutes while the page is open, and with the group's own Refresh button. If a read fails, the last good numbers stay and the reason is shown.
 - **Compact chat** summarises with Sonnet (Claude Code), also for a Codex agent's chat.
@@ -140,7 +141,9 @@ An agent can hand you something to approve and publish (a post, a file, a releas
 2. The reply arrives as a draft with its images and an **Approve & post** button. Decline drops it.
 3. On approve, the app itself runs the agent's `publish_cmd` (the agent has no publish command), and the chat then shows the result or the error.
 
-How it is wired: an agent file may set `post_root` (the only folder a draft may sit in) and `publish_cmd` (with `{dir}` replaced by the draft's folder). When an answer ends with `POST_READY: <folder>`, and that folder is directly inside `post_root` and holds a `post.json` with its image files, the answer becomes a postable draft. Any other path is ignored. A second Approve click on the same draft is refused. Writing `post_root` and `publish_cmd` is file-only: nothing made in the in-app form can set them.
+How it is wired: an agent file may set `post_root` (the only folder a draft may sit in) and `publish_cmd` (with `{dir}` replaced by the draft's folder). When an answer ends with `POST_READY: <folder>`, and that folder is inside `post_root` (directly, or one folder down as `post_root/<account>/<draft>`) and holds a `post.json` with its image files, the answer becomes a postable draft. Any other path is ignored. A second Approve click on the same draft is refused. Writing `post_root` and `publish_cmd` is file-only: nothing made in the in-app form can set them.
+
+**One agent for several accounts.** `scripts/ig-publish.mjs` is a ready-made `publish_cmd` for Instagram: `publish_cmd: node /full/path/to/scripts/ig-publish.mjs {dir}`. It reads the draft's `post.json` (`profile` = the account, `files`, `caption`; add `"type": "reel", "name": "<render name>"` for a reel), refuses a draft whose `profile` is not the name of the folder it sits in, and runs the matching command of the project it is started in (`./socials instagram <profile> post publish <dir>` for a post, `... publish run --name <name> --limit 1` for a reel). It prints `POSTED: <link>` only when that command really posted. Give the agent only the commands that prepare drafts, never the ones that publish, and do not give it full access (shield button): the click is the approval. Test it without Instagram: `npm test` runs it against a fake command.
 
 ## Agents that run on their own
 

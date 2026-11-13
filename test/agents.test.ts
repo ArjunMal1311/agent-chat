@@ -34,7 +34,12 @@ describe("agent files", () => {
 
   test("an unknown engine or sandbox is refused by name", () => {
     assert.throws(() => parse("---\nengine: gemini\n---\nGo.", "x"), /engine must be one of/);
-    assert.throws(() => parse("---\nsandbox: danger-full-access\n---\nGo.", "x"), /sandbox must be one of/);
+    assert.throws(() => parse("---\nsandbox: anything-goes\n---\nGo.", "x"), /sandbox must be one of/);
+  });
+
+  test("a hand-written file may ask for full access (the form still may not, see agentFromForm below)", () => {
+    const a = parse("---\nengine: codex\nsandbox: danger-full-access\n---\nGo.", "x");
+    assert.equal(a.sandbox, "danger-full-access");
   });
 
   test("notes_max is read, defaults to 30 and must be a sane number", () => {

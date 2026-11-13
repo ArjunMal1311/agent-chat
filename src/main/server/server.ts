@@ -21,7 +21,12 @@ export function chatSummary(hub: Hub, name: string): Dict {
     title: agent.title,
     goal: agent.goal,
     approval: agent.approval,
-    model: agent.model,
+    model: hub.shownModel(name),
+    modelPicked: hub.pickedModel(name),
+    choices: hub.modelChoices(),
+    engine: hub.engineOf(name),
+    access: hub.accessOf(name),
+    tools: hub.effectiveAgent(name).tools,
     usage: hub.store.usage(name),
     notes: hub.notesCount(name),
     messages: hub.store.count(name),
@@ -140,6 +145,12 @@ export async function startServer(hub: Hub, staticDir: string, port = DEFAULT_SE
         return json(res, { ok: true });
       case "/api/forget":
         hub.forgetNotes(chat);
+        return json(res, { ok: true });
+      case "/api/model":
+        hub.setModel(chat, String(data.model ?? ""));
+        return json(res, { ok: true });
+      case "/api/access":
+        hub.setAccess(chat, String(data.access ?? ""));
         return json(res, { ok: true });
       case "/api/codex-limits/refresh":
         await hub.refreshCodexLimits();

@@ -5,10 +5,15 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { FORM_MODELS, FORM_TOOLS } from "../../constants/agents.ts";
+import os from "node:os";
+import { CLAUDE_MODEL_CHOICES, FILE_SANDBOXES, FORM_MODELS, FORM_TOOLS } from "../../constants/agents.ts";
 import {
   BEFORE_RUN_TIMEOUT,
   COMPACT_PROMPT,
+  HANDOFF_NOTE_CHARS,
+  HANDOFF_RE,
+  MAX_HANDOFFS_PER_REPLY,
+  MAX_HANDOFF_CHAIN,
   MAX_REVIEWED_CHARS,
   MAX_TRANSCRIPT_CHARS,
   MIN_TO_COMPACT,
@@ -83,6 +88,17 @@ export function shellSplit(line: string): string[] {
 }
 
 /** Claude Code's rate-limit report -> {window: {used 0..1, resets_at epoch seconds, status}}. */
+/** A draft folder is postable only when it sits inside the agent's post_root: directly in it, or one folder down
+ *  (post_root/<account>/<draft>), so a single agent can serve several accounts. Both paths are already real paths. */
+function inPostRoot(root: string, folder: string): boolean {
+  const rel = path.relative(root, folder);
+  if (!rel || rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel)) return false;
+  return rel.split(path.sep).length <= 2;
+}
+
+/** Where Codex keeps its config and model catalog (`CODEX_HOME`, else `~/.codex`). */
+const codexHome = () => process.env.CODEX_HOME || path.join(os.homedir(), ".codex");
+
 export function normalizeLimits(info: unknown): Dict {
   const i: Dict = info && typeof info === "object" ? (info as Dict) : {};
   const windows: Dict = i.unifiedWindows && typeof i.unifiedWindows === "object" ? i.unifiedWindows : {};
@@ -185,7 +201,7 @@ export class Hub {
 
   // ---- Codex usage windows: read from Codex itself, no model call, so refreshing is free -----
   codexInUse(): boolean {
-    return [...this.agents.values()].some((a) => a.engine === "codex");
+    return [...this.agents.keys()].some((name) => this.engineOf(name) === "codex");
   }
 
   /** The saved Codex windows, or null when no agent runs on Codex (then there is nothing to show). */
@@ -225,9 +241,106 @@ export class Hub {
     return isResult(result) ? { ...result.usage } : {};
   }
 
+  /** How much a Codex agent may touch right now: the level picked with the chat's Access button if there is one,
+   *  otherwise what its file says. Claude agents have a fixed tool list instead, so this is only used for Codex. */
+  accessOf(chat: string): Agent["sandbox"] {
+    const agent = this.agents.get(chat)!;
+    const picked = this.store.getJson<string>("access:" + chat);
+    return picked && (FILE_SANDBOXES as readonly string[]).includes(picked) ? (picked as Agent["sandbox"]) : agent.sandbox;
+  }
+
+  /** The program and model picked in the chat's model dropdown, or null when the agent's file decides. `id` is
+   *  "claude:sonnet" or "codex:gpt-6-luna". A pick the dropdown does not offer (an older build saved a bare name, or
+   *  Codex's model list changed) is ignored, so it can never be handed to a program that does not know the model. */
+  pickOf(chat: string): { id: string; engine: Agent["engine"]; model: string } | null {
+    const id = this.store.getJson<string>("model:" + chat) ?? "";
+    const choice = this.modelChoices().find((c) => c.id === id);
+    return choice ? { id, engine: choice.engine, model: id.slice(id.indexOf(":") + 1) } : null;
+  }
+
+  /** The picked id ("claude:opus"), or "" when the agent's file decides. */
+  pickedModel(chat: string): string {
+    return this.pickOf(chat)?.id ?? "";
+  }
+
+  /** The program the chat's next run uses: the one picked in its dropdown, else the one in its file. */
+  engineOf(chat: string): Agent["engine"] {
+    return this.pickOf(chat)?.engine ?? this.agents.get(chat)!.engine;
+  }
+
+  /** The agent as its next run sees it: its file with the chat's own picks applied (program, model, access).
+   *  Used only for the chat's registered agent, never for a helper agent that runs under the same chat name. */
+  effectiveAgent(chat: string): Agent {
+    const agent = this.agents.get(chat)!;
+    const pick = this.pickOf(chat);
+    const engine = pick?.engine ?? agent.engine;
+    const out: Agent = { ...agent, engine, model: pick ? pick.model : agent.model };
+    out.sandbox = this.accessOf(chat); // Codex: its sandbox. Claude: "danger-full-access" means every tool (see runClaude).
+    // A Codex agent's file has no tool list (its sandbox limits it instead). Switched to Claude it gets read-only
+    // tools so it can still read files; give its file a `tools:` line for anything more.
+    if (engine === "claude" && agent.engine === "codex" && !out.tools.length) out.tools = ["Read", "Grep", "Glob"];
+    return out;
+  }
+
+  /** The model the next run uses ("" = the program's own default). */
+  modelOf(chat: string): string {
+    return this.effectiveAgent(chat).model;
+  }
+
+  /** What the model dropdown lists, for every chat: Claude's models, then the GPT models Codex itself says this login
+   *  can use (read from its own cache file; none if Codex has not written one). */
+  modelChoices(): { id: string; label: string; engine: Agent["engine"] }[] {
+    const claude = CLAUDE_MODEL_CHOICES.map((c) => ({ id: "claude:" + c.id, label: c.label, engine: "claude" as const }));
+    try {
+      const models: unknown = JSON.parse(fs.readFileSync(path.join(codexHome(), "models_cache.json"), "utf8")).models;
+      if (!Array.isArray(models)) return claude;
+      const codex = models
+        .filter((m) => m && m.visibility === "list" && typeof m.slug === "string")
+        .map((m) => ({ id: "codex:" + m.slug, label: String(m.display_name || m.slug), engine: "codex" as const }));
+      return [...claude, ...codex];
+    } catch {
+      return claude;
+    }
+  }
+
+  /** The model a chat shows when nothing is picked: its file's model, or for Codex the default in Codex's own
+   *  config (what `codex exec` uses when no `-m` is passed). Display only; the run is still started without `-m`. */
+  shownModel(chat: string): string {
+    const model = this.modelOf(chat);
+    if (model || this.engineOf(chat) !== "codex") return model;
+    try {
+      return /^model\s*=\s*"([^"]+)"/m.exec(fs.readFileSync(path.join(codexHome(), "config.toml"), "utf8"))?.[1] ?? "";
+    } catch {
+      return "";
+    }
+  }
+
+  /** Pick a model for a chat ("" goes back to the agent file's choice). Picking a model from the other family also
+   *  switches the chat to that program. It applies from the next run. */
+  setModel(chat: string, id: string): void {
+    if (!this.agents.has(chat)) throw new Error("unknown chat");
+    const pick = id.trim();
+    if (pick && !this.modelChoices().some((c) => c.id === pick)) throw new Error(`${pick} is not one of the models offered.`);
+    this.store.setJson("model:" + chat, pick);
+    this.notify(chat);
+  }
+
+  /** Remember an access level for a chat. It applies from the next run, not the one in progress. Codex chats have
+   *  three levels. Claude chats have two: the tools in their file (read-only), or full access (every tool). */
+  setAccess(chat: string, level: string): void {
+    if (!this.agents.has(chat)) throw new Error("unknown chat");
+    const offered = this.engineOf(chat) === "codex" ? FILE_SANDBOXES : (["read-only", "danger-full-access"] as const);
+    if (!(offered as readonly string[]).includes(level)) throw new Error(`access must be one of ${offered.join(", ")} for this agent`);
+    this.store.setJson("access:" + chat, level);
+    this.notify(chat);
+  }
+
   /** Call the runner. Returns [text, meta or null]; meta is the usage plus the steps taken.
    *  Steps are published as they happen so the chat can show what the agent is doing. */
   private async run(chat: string, agent: Agent, prompt: string): Promise<[string, Usage | null]> {
+    // The chat's own choices (model dropdown and shield button) apply to its registered agent only, never to a
+    // helper agent that happens to run under the same chat name.
+    if (this.agents.get(chat) === agent) agent = this.effectiveAgent(chat);
     const steps: string[] = [];
     const onStep = (text: string) => {
       steps.push(text);
@@ -303,11 +416,29 @@ export class Hub {
     return fs.existsSync(p) ? fs.readFileSync(p, "utf8").split("\n").filter((l) => l.trim()).length : 0;
   }
 
-  private prompt(name: string, request: string): string {
+  /** The agents `name` may hand work to in this turn: everyone but itself and the Manager, minus anyone already in the
+   *  chain of hand-offs that led here (so nothing loops), limited by its `can_call:` line. None once the chain is long. */
+  private callable(name: string, chain: string[]): Agent[] {
+    const agent = this.agents.get(name);
+    if (!agent || name === "manager" || chain.length >= MAX_HANDOFF_CHAIN) return [];
+    return [...this.agents.values()].filter(
+      (a) => a.name !== "manager" && a.name !== name && !chain.includes(a.name) && (agent.canCall === null || agent.canCall.includes(a.name)),
+    );
+  }
+
+  private prompt(name: string, request: string, chain: string[] = []): string {
     const d = new Date();
     const pad = (n: number) => String(n).padStart(2, "0");
     const day = d.toLocaleDateString("en-US", { weekday: "long" });
     const parts = [`Today is ${day} ${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}.`];
+    const others = this.callable(name, chain);
+    if (others.length) {
+      parts.push(
+        "Other agents you can hand work to (the app runs them for you; their answer appears in their own chat and a note with it comes back to this chat, but you do not wait for it):\n" +
+          others.map((a) => `- ${a.name}: ${a.title}. ${a.goal}`).join("\n") +
+          `\nTo hand work over, end your reply with one line per agent: HANDOFF: <name> | <the task, with every detail that agent needs>. Only do this when the request really needs that agent, at most ${MAX_HANDOFFS_PER_REPLY} per reply, and never for work you can do yourself.`,
+      );
+    }
     const memory = this.readMemory(name);
     if (memory) parts.push("Your notes from earlier runs:\n" + memory);
     const summary = this.summaryOf(name);
@@ -492,7 +623,7 @@ export class Hub {
       const folder = fs.realpathSync(found[found.length - 1].trim());
       const root = fs.realpathSync(agent.postRoot);
       const spec = path.join(folder, "post.json");
-      if (path.dirname(folder) !== root || !fs.statSync(spec).isFile()) return [clean, null];
+      if (!inPostRoot(root, folder) || !fs.statSync(spec).isFile()) return [clean, null];
       const data = JSON.parse(fs.readFileSync(spec, "utf8"));
       const files: string[] = data.files.filter((f: string) => fs.existsSync(path.join(folder, f)) && fs.statSync(path.join(folder, f)).isFile());
       if (!files.length || files.length !== data.files.length) return [clean, null];
@@ -513,7 +644,7 @@ export class Hub {
       if (typeof file !== "string") return null;
       const real = fs.realpathSync(path.join(post.dir, file));
       const root = fs.realpathSync(agent.postRoot);
-      return path.dirname(path.dirname(real)) === root && fs.statSync(real).isFile() ? real : null;
+      return path.dirname(real) === fs.realpathSync(post.dir) && inPostRoot(root, path.dirname(real)) && fs.statSync(real).isFile() ? real : null;
     } catch {
       return null;
     }
@@ -534,7 +665,7 @@ export class Hub {
   }
 
   /** Run one agent on a request. Resolves true if it produced an answer. */
-  async agentTurn(name: string, request: string): Promise<boolean> {
+  async agentTurn(name: string, request: string, chain: string[] = []): Promise<boolean> {
     const agent = this.agents.get(name)!;
     if (!this.store.tryStart(name, "Starting…")) {
       this.store.add(name, name, "I'm still working on the last request. Ask again in a minute.");
@@ -545,13 +676,21 @@ export class Hub {
     let ok = false;
     try {
       if (agent.beforeRun) request += await this.beforeRun(agent);
-      let [out, usage] = await this.run(name, agent, this.prompt(name, request));
+      let [out, usage] = await this.run(name, agent, this.prompt(name, request, chain));
       out = this.extractMemory(name, out);
       let post: Dict | null;
       [out, post] = this.extractPost(agent, out);
+      let calls: [string, string][];
+      let ignored: string[];
+      [out, calls, ignored] = this.extractHandoffs(name, out, chain);
       if (post) usage = { ...(usage || {}), post };
       const kind = (agent.approval || post) && out ? "approval" : "text";
       this.store.add(name, name, out || "(no answer)", kind, kind === "approval" ? "pending" : "", usage);
+      if (ignored.length) this.store.add(name, name, `Hand-off ignored (not an agent it may call here): ${ignored.join(", ")}.`, "status");
+      for (const [target, task] of calls) {
+        this.store.add(name, name, `Handed to ${this.agents.get(target)!.title}: ${task}`, "status");
+        this.spawn(this.callAgent(name, target, task, [...chain, name]));
+      }
       ok = true;
     } catch (e) {
       console.error(e); // shown in the chat, never crashes the server
@@ -559,9 +698,46 @@ export class Hub {
     } finally {
       this.store.finish(name);
       this.notify(name);
-      if (agent.engine === "codex") this.refreshCodexLimitsSoon(30); // that run used some of the Codex allowance
+      if (this.engineOf(name) === "codex") this.refreshCodexLimitsSoon(30); // that run used some of the Codex allowance
     }
     return ok;
+  }
+
+  /** Take the `HANDOFF: <agent> | <task>` lines out of a reply. Returns [text without them, the hand-offs it may make,
+   *  the names it asked for but may not call]. At most MAX_HANDOFFS_PER_REPLY, each agent once. */
+  private extractHandoffs(name: string, text: string, chain: string[]): [string, [string, string][], string[]] {
+    const asked = [...text.matchAll(HANDOFF_RE)];
+    if (!asked.length) return [text, [], []];
+    const allowed = new Set(this.callable(name, chain).map((a) => a.name));
+    const calls: [string, string][] = [];
+    const ignored: string[] = [];
+    for (const m of asked) {
+      const target = m[1];
+      if (allowed.has(target) && calls.length < MAX_HANDOFFS_PER_REPLY && !calls.some((c) => c[0] === target)) calls.push([target, m[2].trim()]);
+      else if (!ignored.includes(target)) ignored.push(target);
+    }
+    return [text.replace(HANDOFF_RE, "").trim(), calls, ignored];
+  }
+
+  /** One agent hands a task to another: the task goes into the other agent's chat in the caller's name, the other agent
+   *  runs, and a note with its answer comes back to the caller's chat. The caller is not run again, so nothing loops. */
+  private async callAgent(from: string, to: string, task: string, chain: string[]): Promise<void> {
+    const caller = this.agents.get(from)!;
+    const target = this.agents.get(to)!;
+    const request = `From ${caller.title}: ${task}`;
+    this.store.add(to, from, request);
+    this.notify(to);
+    const ok = await this.agentTurn(to, request, chain);
+    const answer = this.store.last(to);
+    let note: string;
+    if (!ok || !answer || answer.sender !== to) {
+      note = `${target.title} could not finish this.\n\n${answer && answer.sender === to ? answer.body : ""}`.trim();
+    } else {
+      const body = answer.body.length > HANDOFF_NOTE_CHARS ? answer.body.slice(0, HANDOFF_NOTE_CHARS) + "…\n(the rest is in their chat)" : answer.body;
+      note = `${target.title} answered:\n\n${body}` + (answer.kind === "approval" ? `\n\nThis is a draft. Approve or decline it in ${target.title}'s chat.` : "");
+    }
+    this.store.add(from, to, note);
+    this.notify(from, to);
   }
 
   private async managerTurn(text: string): Promise<void> {

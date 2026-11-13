@@ -36,7 +36,7 @@ src/
     server.ts            request size limit, served file types
     db.ts                SQLite schema
     app.ts               default ports
-    ui.ts                page text and choices: starter buttons, usage notes, avatar species
+    ui.ts                page text and choices: starter buttons, usage notes, the avatar colours
   main/                  server and desktop shell (Node)
     index.ts             Electron window: npm run app
     cli.ts               headless start: npm start

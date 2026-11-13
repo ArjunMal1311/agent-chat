@@ -33,6 +33,11 @@ export const ChatSchema = z.object({
   goal: z.string(),
   approval: z.boolean(),
   model: z.string(),
+  modelPicked: z.string(), // the model chosen in the chat's dropdown ("claude:sonnet", "codex:gpt-6-luna"); "" = the agent file's choice
+  choices: z.array(z.object({ id: z.string(), label: z.string(), engine: z.string() })), // what that dropdown lists, Claude then Codex
+  engine: z.string(),
+  access: z.string(), // "read-only" | "workspace-write" | "danger-full-access" (Claude chats use only the first and last)
+  tools: z.array(z.string()),
   usage: UsageSchema,
   notes: num,
   messages: num,

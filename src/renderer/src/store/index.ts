@@ -15,7 +15,7 @@ import { fmtMoney, previewOf } from "../lib/format";
 import type { AgentOptions, Chat, CodexLimits, Limits, Message } from "../lib/types";
 
 type Theme = "" | "light" | "dark";
-export type MenuStep = null | "main" | "compact" | "clear" | "forget";
+export type MenuStep = null | "main" | "compact" | "clear" | "forget" | "access" | "access-full";
 
 const readTheme = (): Theme => {
   try {
@@ -59,6 +59,8 @@ interface State {
   toast: (text: string) => void;
   setMenu: (step: MenuStep) => void;
   runMenu: (action: "clear" | "compact" | "forget") => Promise<void>;
+  setAccess: (level: "read-only" | "workspace-write" | "danger-full-access") => Promise<void>;
+  setModel: (model: string) => Promise<void>;
   refreshClaudeLimits: () => Promise<void>;
   refreshCodexLimits: () => Promise<void>;
   openForm: () => Promise<void>;
@@ -206,6 +208,32 @@ export const useStore = create<State>((set, get) => ({
       get().toast((err as Error).message);
       set({ menu: null });
     }
+  },
+
+  async setAccess(level) {
+    const chat = get().current;
+    if (!chat) return;
+    try {
+      await api("/api/access", Ignored, { chat, access: level });
+      get().toast(level === "danger-full-access" ? "Full access on: applies from the next run" : "Access changed: applies from the next run");
+    } catch (err) {
+      get().toast((err as Error).message);
+    }
+    set({ menu: null });
+    await get().loadMessages();
+  },
+
+  async setModel(model) {
+    const chat = get().current;
+    if (!chat) return;
+    try {
+      await api("/api/model", Ignored, { chat, model });
+      get().toast(model ? `Model changed, from the next run` : "Model back to the agent's own choice, from the next run");
+    } catch (err) {
+      get().toast((err as Error).message);
+    }
+    set({ menu: null });
+    await get().loadMessages();
   },
 
   async refreshClaudeLimits() {

@@ -229,18 +229,44 @@ function CacheLine({ meta }: { meta: Chat }) {
 }
 
 function HeadUsage({ meta }: { meta: Chat }) {
+  const { setModel } = useStore();
   const u = meta.usage;
-  const model = shortModel(u?.model) || meta.model || "default model";
+  const picked = meta.modelPicked;
+  // With nothing picked, the empty option names the model that is actually in use, so the closed dropdown reads like the old chip.
+  // Codex runs only ever report the label "codex", so its chats show the real model name instead.
+  const inUse = (meta.engine === "codex" ? meta.model : "") || shortModel(u?.model) || meta.model || "default model";
+  const chip = (
+    <select
+      className="stat model-select"
+      title="Model for the next run"
+      aria-label="Model for the next run"
+      value={picked}
+      onChange={(e) => void setModel(e.target.value)}
+    >
+      <option value="">{picked ? "Agent's own choice" : inUse}</option>
+      <optgroup label="Claude">
+        {meta.choices.filter((c) => c.engine === "claude").map((c) => (
+          <option key={c.id} value={c.id}>{c.label}</option>
+        ))}
+      </optgroup>
+      {meta.choices.some((c) => c.engine === "codex") ? (
+        <optgroup label="GPT (Codex)">
+          {meta.choices.filter((c) => c.engine === "codex").map((c) => (
+            <option key={c.id} value={c.id}>{c.label}</option>
+          ))}
+        </optgroup>
+      ) : null}    </select>
+  );
   return (
     <div className="head-usage" title={USAGE_NOTE}>
       {!u?.runs ? (
         <>
-          <span className="stat">{model}</span>
+          {chip}
           <span className="stat">no runs yet</span>
         </>
       ) : (
         <>
-          <span className="stat"><b>{model}</b></span>
+          {chip}
           <span className="stat"><b>{u.runs}</b> run{u.runs > 1 ? "s" : ""}</span>
           <span className="stat"><b>{fmtTokens(u.tokens)}</b> tokens</span>
           {u.cost ? <span className="stat">~<b>{fmtMoney(u.cost)}</b></span> : null}
@@ -254,8 +280,29 @@ function HeadUsage({ meta }: { meta: Chat }) {
   );
 }
 
+type Access = "read-only" | "workspace-write" | "danger-full-access";
+const ACCESS_LABEL: Record<Access, string> = {
+  "read-only": "Read only",
+  "workspace-write": "Edit files in its folder",
+  "danger-full-access": "Full access",
+};
+const ACCESS_HELP: Record<Access, string> = {
+  "read-only": "Reads files and runs read-only commands. No network.",
+  "workspace-write": "Can also edit files in its folder. No network.",
+  "danger-full-access": "Any command, the network and any file, as you.",
+};
+// A chat running on Claude has two levels: only the tools in its file, or every tool.
+const CLAUDE_LEVELS: Access[] = ["read-only", "danger-full-access"];
+const CLAUDE_LABEL: Record<string, string> = { "read-only": "Its file's tools", "danger-full-access": "Full access" };
+const CLAUDE_HELP: Record<string, string> = {
+  "read-only": "Only the tools listed in its file.",
+  "danger-full-access": "Every tool: any command, edit any file, the web, and the MCP servers in its folder (such as Apify).",
+};
+const accessName = (meta: Chat) =>
+  meta.engine === "codex" ? (ACCESS_LABEL[meta.access as Access] ?? meta.access) : meta.access === "danger-full-access" ? "Full access" : "Its file's tools";
+
 function Menu({ meta }: { meta: Chat }) {
-  const { menu, setMenu, runMenu } = useStore();
+  const { menu, setMenu, runMenu, setAccess } = useStore();
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     ref.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
@@ -292,6 +339,37 @@ function Menu({ meta }: { meta: Chat }) {
             Forget this agent's {meta.notes} saved note{meta.notes === 1 ? "" : "s"}? It will no longer remember earlier runs. Messages stay.
           </div>
           {actions("forget", "Forget notes", true)}
+        </>
+      ) : menu === "access" ? (
+        <>
+          <div className="menu-text">What can {meta.title} touch on your computer? Applies from its next run.</div>
+          {(meta.engine === "codex" ? (Object.keys(ACCESS_LABEL) as Access[]) : CLAUDE_LEVELS).map((level) => {
+            const current = meta.engine !== "codex" && meta.access !== "danger-full-access" ? "read-only" : meta.access;
+            const claude = meta.engine !== "codex";
+            return (
+              <button
+                key={level}
+                type="button"
+                role="menuitemradio"
+                aria-checked={current === level}
+                className={current === level ? "on" : undefined}
+                onClick={() => (level === current ? setMenu(null) : level === "danger-full-access" ? setMenu("access-full") : void setAccess(level))}
+              >
+                <b>{claude ? CLAUDE_LABEL[level] : ACCESS_LABEL[level]}</b>
+                <small>{claude ? (level === "read-only" && meta.tools.length ? `Only: ${meta.tools.join(", ")}` : CLAUDE_HELP[level]) : ACCESS_HELP[level]}</small>
+              </button>
+            );
+          })}
+        </>
+      ) : menu === "access-full" ? (
+        <>
+          <div className="menu-text">
+            Give {meta.title} full access? It will be able to run any command as you, use the network, and read or change any file you can. A hostile caption or comment it reads could steer it. Applies from its next run.
+          </div>
+          <div className="menu-actions">
+            <button type="button" onClick={() => setMenu("access")}>Back</button>
+            <button type="button" className="danger" onClick={() => void setAccess("danger-full-access")}>Give full access</button>
+          </div>
         </>
       ) : (
         <>
@@ -436,6 +514,23 @@ export function Thread() {
             <CacheLine meta={meta} />
           </div>
         </div>
+        <button
+          className={"icon-btn access-btn" + (meta.access === "danger-full-access" ? " full" : "")}
+          type="button"
+          aria-label={`Access: ${accessName(meta)}`}
+          title={`Access: ${accessName(meta)}`}
+          aria-haspopup="menu"
+          aria-expanded={menu === "access" || menu === "access-full"}
+          onClick={(e) => {
+            e.stopPropagation();
+            setMenu(menu === "access" || menu === "access-full" ? null : "access");
+          }}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path d="M12 3.5 5 6.2v5.3c0 4.2 2.8 7.4 7 9 4.2-1.6 7-4.8 7-9V6.2l-7-2.7Z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            {meta.access === "danger-full-access" && <path d="M12 8.5v4.2M12 15.2v.1" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />}
+          </svg>
+        </button>
         <button
           className="icon-btn menu-btn"
           type="button"

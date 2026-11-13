@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { ENGINES, FORM_MODELS, FORM_TOOLS, MAX_PROMPT, RESERVED_NAMES, SANDBOXES } from "../../constants/agents.ts";
+import { ENGINES, FILE_SANDBOXES, FORM_MODELS, FORM_TOOLS, MAX_PROMPT, RESERVED_NAMES, SANDBOXES } from "../../constants/agents.ts";
 
 export interface Agent {
   name: string;
@@ -17,13 +17,14 @@ export interface Agent {
   postRoot: string; // folder a finished post may sit in; a POST_READY: line pointing inside it makes a postable draft
   publishCmd: string; // run when you approve such a draft; {dir} is replaced by the post's folder
   engine: "claude" | "codex"; // which CLI runs this agent
-  sandbox: "read-only" | "workspace-write"; // codex only: what the agent may touch
+  sandbox: "read-only" | "workspace-write" | "danger-full-access"; // codex only: what the agent may touch
   schedule: string; // "HH:MM" local time: the app sends scheduleMessage to this agent once a day while it is running
   scheduleMessage: string;
   beforeRun: string; // a command the app runs (in cwd) before every request to this agent. File-only
   logCmd: string; // run by the app (never by the model) for the chat commands /sent and /reply in this agent's chat. File-only
   search: boolean; // codex only: turn on live web search for this agent
   notesMax: number; // how many REMEMBER notes the agent keeps (newest win). Default 30
+  canCall: string[] | null; // other agents it may hand work to with a HANDOFF: line. null (no can_call: line) = any; [] = none
 }
 
 export function makeAgent(name: string, over: Partial<Agent> = {}): Agent {
@@ -47,8 +48,16 @@ export function makeAgent(name: string, over: Partial<Agent> = {}): Agent {
     logCmd: "",
     search: false,
     notesMax: 30,
+    canCall: null,
     ...over,
   };
+}
+
+/** `can_call:` in an agent file: absent = may hand work to any agent, `none` = to nobody, else a comma list of names. */
+function canCallOf(value: string | undefined): string[] | null {
+  const text = (value ?? "").trim();
+  if (!text) return null;
+  return text.toLowerCase() === "none" ? [] : text.split(",").map((n) => n.trim()).filter(Boolean);
 }
 
 export function expandUser(p: string): string {
@@ -81,8 +90,8 @@ export function parse(text: string, name: string): Agent {
     throw new Error(`agents/${name}.md: engine must be one of ${ENGINES.join(", ")} (got '${engine}')`);
   }
   const sandbox = (meta.sandbox ?? "read-only").toLowerCase();
-  if (!(SANDBOXES as readonly string[]).includes(sandbox)) {
-    throw new Error(`agents/${name}.md: sandbox must be one of ${SANDBOXES.join(", ")} (got '${sandbox}')`);
+  if (!(FILE_SANDBOXES as readonly string[]).includes(sandbox)) {
+    throw new Error(`agents/${name}.md: sandbox must be one of ${FILE_SANDBOXES.join(", ")} (got '${sandbox}')`);
   }
   const schedule = meta.schedule ?? "";
   if (schedule && !/^([01]\d|2[0-3]):[0-5]\d$/.test(schedule)) {
@@ -101,6 +110,7 @@ export function parse(text: string, name: string): Agent {
     logCmd: meta.log_cmd ?? "",
     search: (meta.search ?? "false").toLowerCase() === "true",
     notesMax,
+    canCall: canCallOf(meta.can_call),
     title: meta.title ?? name.charAt(0).toUpperCase() + name.slice(1),
     goal: meta.goal ?? "",
     tools: (meta.tools ?? "").split(",").map((t) => t.trim()).filter(Boolean),

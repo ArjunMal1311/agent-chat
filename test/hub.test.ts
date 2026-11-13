@@ -331,6 +331,203 @@ describe("approvals, clearing and compacting", () => {
   });
 });
 
+describe("access level from the chat's button", () => {
+  const withCodex = (seen: string[]) =>
+    makeHub(
+      async (agent) => {
+        seen.push(agent.sandbox);
+        return "ok";
+      },
+      { agents: new Map([...defaultAgents(), ["doctor", makeAgent("doctor", { title: "Doctor", engine: "codex", sandbox: "read-only" })]]) },
+    );
+
+  test("a picked level applies to the next run and survives in the store", async () => {
+    const seen: string[] = [];
+    const hub = withCodex(seen);
+    assert.equal(hub.accessOf("doctor"), "read-only");
+    hub.setAccess("doctor", "danger-full-access");
+    assert.equal(hub.accessOf("doctor"), "danger-full-access");
+    hub.send("doctor", "hi");
+    await hub.settle();
+    assert.deepEqual(seen, ["danger-full-access"]);
+    hub.setAccess("doctor", "read-only");
+    hub.send("doctor", "again");
+    await hub.settle();
+    assert.deepEqual(seen, ["danger-full-access", "read-only"]);
+  });
+
+  test("only Codex agents, known chats and known levels are accepted", () => {
+    const hub = withCodex([]);
+    assert.throws(() => hub.setAccess("planner", "workspace-write"), /access must be one of read-only, danger-full-access/);
+    hub.setAccess("planner", "danger-full-access"); // a Claude chat may be given full access (every tool)
+    assert.equal(hub.accessOf("planner"), "danger-full-access");
+    assert.throws(() => hub.setAccess("nobody", "read-only"), /unknown chat/);
+    assert.throws(() => hub.setAccess("doctor", "anything-goes"), /access must be one of/);
+    assert.equal(hub.accessOf("doctor"), "read-only");
+  });
+});
+
+describe("model from the chat's dropdown", () => {
+  /** A fake Codex home with two visible models, one hidden, and a config default; CODEX_HOME points at it. */
+  const withCodexHome = (fn: () => void | Promise<void>) => async () => {
+    const home = tmp("codex-");
+    fs.writeFileSync(
+      path.join(home, "models_cache.json"),
+      JSON.stringify({ models: [{ slug: "m-one", display_name: "M One", visibility: "list" }, { slug: "m-two", visibility: "list" }, { slug: "m-hidden", visibility: "hide" }] }),
+    );
+    fs.writeFileSync(path.join(home, "config.toml"), 'model = "m-one"\nmodel_reasoning_effort = "medium"\n');
+    const old = process.env.CODEX_HOME;
+    process.env.CODEX_HOME = home;
+    try {
+      await fn();
+    } finally {
+      if (old === undefined) delete process.env.CODEX_HOME;
+      else process.env.CODEX_HOME = old;
+    }
+  };
+  const seenBy = (seen: { engine: string; model: string; sandbox: string; tools: string[] }[], extra: Parameters<typeof makeAgent>[1] = {}) =>
+    makeHub(
+      async (agent) => {
+        seen.push({ engine: agent.engine, model: agent.model, sandbox: agent.sandbox, tools: agent.tools });
+        return "ok";
+      },
+      { agents: new Map([...defaultAgents(), ["doctor", makeAgent("doctor", { title: "Doctor", engine: "codex", sandbox: "read-only", ...extra })]]) },
+    );
+
+  test("the dropdown lists Claude's models, then only the models Codex says are visible", withCodexHome(() => {
+    const hub = seenBy([]);
+    assert.deepEqual(hub.modelChoices().map((c) => c.id), ["claude:sonnet", "claude:haiku", "claude:opus", "codex:m-one", "codex:m-two"]);
+    assert.deepEqual(hub.modelChoices().map((c) => c.engine), ["claude", "claude", "claude", "codex", "codex"]);
+  }));
+
+  test("a picked model applies to the next run; empty goes back to the file's choice", withCodexHome(async () => {
+    const seen: { engine: string; model: string; sandbox: string; tools: string[] }[] = [];
+    const hub = makeHub(async (agent) => {
+      seen.push({ engine: agent.engine, model: agent.model, sandbox: agent.sandbox, tools: agent.tools });
+      return "ok";
+    }, { agents: new Map([...defaultAgents(), ["planner", makeAgent("planner", { title: "Planner", model: "haiku", tools: ["Read"] })]]) });
+    assert.equal(hub.modelOf("planner"), "haiku");
+    hub.setModel("planner", "claude:opus");
+    assert.deepEqual([hub.pickedModel("planner"), hub.modelOf("planner"), hub.engineOf("planner")], ["claude:opus", "opus", "claude"]);
+    hub.send("planner", "hi");
+    await hub.settle();
+    hub.setModel("planner", "");
+    hub.send("planner", "again");
+    await hub.settle();
+    assert.deepEqual(seen.map((s) => [s.engine, s.model]), [["claude", "opus"], ["claude", "haiku"]]);
+  }));
+
+  test("picking a model from the other family switches the program, and back again", withCodexHome(async () => {
+    const seen: { engine: string; model: string; sandbox: string; tools: string[] }[] = [];
+    const hub = seenBy(seen);
+    hub.setAccess("doctor", "danger-full-access");
+    hub.setModel("doctor", "claude:sonnet");
+    assert.equal(hub.engineOf("doctor"), "claude");
+    assert.throws(() => hub.setAccess("doctor", "workspace-write"), /access must be one of read-only, danger-full-access/);
+    assert.equal(hub.codexInUse(), false, "no chat runs on Codex now");
+    hub.send("doctor", "on claude");
+    await hub.settle();
+    hub.setModel("doctor", "codex:m-two");
+    assert.equal(hub.codexInUse(), true);
+    hub.send("doctor", "on codex");
+    await hub.settle();
+    assert.deepEqual(seen[0], { engine: "claude", model: "sonnet", sandbox: "danger-full-access", tools: ["Read", "Grep", "Glob"] }); // the saved full access follows the chat to Claude (runClaude turns it into every tool)
+    assert.deepEqual(seen[1], { engine: "codex", model: "m-two", sandbox: "danger-full-access", tools: [] });
+  }));
+
+  test("a Codex chat with no pick shows Codex's configured default but runs without naming a model", withCodexHome(() => {
+    const hub = seenBy([]);
+    assert.equal(hub.shownModel("doctor"), "m-one");
+    assert.equal(hub.modelOf("doctor"), "");
+  }));
+
+  test("unknown chats and models outside the list are refused; an old bare pick is ignored", withCodexHome(() => {
+    const hub = seenBy([]);
+    assert.throws(() => hub.setModel("nobody", "claude:opus"), /unknown chat/);
+    assert.throws(() => hub.setModel("planner", "opus; rm -rf /"), /not one of the models/);
+    assert.throws(() => hub.setModel("doctor", "codex:m-hidden"), /not one of the models/);
+    assert.equal(hub.pickedModel("planner"), "");
+    hub.store.setJson("model:doctor", "sonnet"); // what an older build saved
+    assert.deepEqual([hub.pickedModel("doctor"), hub.engineOf("doctor")], ["", "codex"]);
+  }));
+});
+
+describe("agents handing work to each other", () => {
+  /** A hub whose agents answer from a script keyed by agent name; records every prompt it was given. */
+  const scripted = (answers: Record<string, string>, agents = defaultAgents()) => {
+    const prompts: Record<string, string[]> = {};
+    const hub = makeHub(async (agent, prompt) => {
+      (prompts[agent.name] ||= []).push(prompt);
+      return answers[agent.name] ?? "ok";
+    }, { agents });
+    return { hub, prompts };
+  };
+  const bodies = (hub: ReturnType<typeof makeHub>, chat: string) => hub.store.messages(chat).map((m) => `${m.sender}: ${m.body}`);
+
+  test("every agent is told who else it can hand work to, but not itself or the Manager", async () => {
+    const { hub, prompts } = scripted({});
+    hub.send("planner", "hi");
+    await hub.settle();
+    const prompt = prompts.planner[0];
+    assert.match(prompt, /Other agents you can hand work to/);
+    assert.match(prompt, /- writer: Writer/);
+    assert.doesNotMatch(prompt, /- planner:/);
+    assert.doesNotMatch(prompt, /- manager:/);
+    assert.match(prompt, /HANDOFF: <name> \| <the task/);
+  });
+
+  test("a HANDOFF line runs the other agent and a note with its answer comes back", async () => {
+    const { hub, prompts } = scripted({ planner: "On it.\nHANDOFF: writer | draft a post about reels", writer: "Here is the draft" });
+    hub.send("planner", "go");
+    await hub.settle();
+    const planner = bodies(hub, "planner");
+    assert.ok(planner.includes("planner: On it."), "the HANDOFF line is not shown");
+    assert.ok(planner.some((b) => b.startsWith("planner: Handed to Writer: draft a post about reels")));
+    assert.ok(planner.some((b) => b.startsWith("writer: Writer answered:") && b.includes("Here is the draft") && b.includes("This is a draft")), "writer is an approval agent");
+    const writer = bodies(hub, "writer");
+    assert.equal(writer[0], "planner: From Planner: draft a post about reels");
+    assert.match(prompts.writer[0], /Request:\nFrom Planner: draft a post about reels/);
+    assert.equal(hub.store.last("writer")!.kind, "approval", "its answer is still a draft for you to approve");
+  });
+
+  test("nothing loops: the agent that asked is not callable from the chain, and the caller is not run again", async () => {
+    const { hub, prompts } = scripted({ planner: "HANDOFF: writer | do it", writer: "done\nHANDOFF: planner | and again" });
+    hub.send("planner", "go");
+    await hub.settle();
+    assert.equal(prompts.planner.length, 1, "planner ran once");
+    assert.doesNotMatch(prompts.writer[0], /- planner:/);
+    assert.ok(bodies(hub, "writer").some((b) => b.includes("Hand-off ignored") && b.includes("planner")));
+    assert.ok(!bodies(hub, "writer").some((b) => b.includes("HANDOFF:")));
+  });
+
+  test("can_call limits who an agent may hand work to", async () => {
+    const agents = defaultAgents();
+    agents.set("planner", makeAgent("planner", { title: "Planner", canCall: [] }));
+    const { hub, prompts } = scripted({ planner: "HANDOFF: writer | do it" }, agents);
+    hub.send("planner", "go");
+    await hub.settle();
+    assert.doesNotMatch(prompts.planner[0], /Other agents you can hand work to/);
+    assert.equal(hub.store.count("writer"), 0, "writer was never called");
+    assert.ok(bodies(hub, "planner").some((b) => b.includes("Hand-off ignored")));
+  });
+
+  test("unknown agents and the Manager cannot be called; one agent once; the chain stops at two", async () => {
+    const agents = new Map([...defaultAgents(), ["b", makeAgent("b", { title: "B" })], ["c", makeAgent("c", { title: "C" })], ["d", makeAgent("d", { title: "D" })]]);
+    const { hub, prompts } = scripted(
+      { planner: "HANDOFF: ghost | x\nHANDOFF: manager | y\nHANDOFF: b | one\nHANDOFF: b | two\nHANDOFF: c | three\nHANDOFF: d | four", b: "HANDOFF: d | from b", c: "HANDOFF: d | from c", d: "end" },
+      agents,
+    );
+    hub.send("planner", "go");
+    await hub.settle();
+    assert.equal(hub.store.count("manager"), 0);
+    assert.equal(prompts.b.length, 1, "b once, even though planner asked twice");
+    assert.equal(prompts.c.length, 1, "at most two hand-offs per reply: b and c");
+    assert.ok(!prompts.d || prompts.d.length <= 2, "d is only reached through b and c (chain of two), once each");
+    for (const chat of ["b", "c"]) assert.ok(!bodies(hub, chat).some((b) => b.includes("HANDOFF:")));
+    assert.doesNotMatch(prompts.d?.[0] ?? "", /Other agents you can hand work to/, "the third agent in a chain cannot hand work on");
+  });
+});
+
 describe("publishing a draft", () => {
   function setup(poster = async (_argv: string[], _cwd: string): Promise<[number, string]> => [0, "POSTED: https://example.com/p/1\n"]) {
     const root = fs.realpathSync(tmp("posts-"));
@@ -378,6 +575,31 @@ describe("publishing a draft", () => {
     failing.hub.approve(failing.hub.store.last("poster")!.id, "approved");
     await failing.hub.settle();
     assert.match(failing.hub.store.last("poster")!.body, /Could not publish[\s\S]*no token/);
+  });
+
+  test("a draft may sit one folder below the post root (root/<account>/<draft>), not two", async () => {
+    const root = fs.realpathSync(tmp("posts-"));
+    const make = (...parts: string[]) => {
+      const folder = path.join(root, ...parts);
+      fs.mkdirSync(folder, { recursive: true });
+      fs.writeFileSync(path.join(folder, "1.png"), "png");
+      fs.writeFileSync(path.join(folder, "post.json"), JSON.stringify({ files: ["1.png"], caption: "c" }));
+      return folder;
+    };
+    const kindFor = async (folder: string) => {
+      const agents = defaultAgents();
+      agents.set("poster", makeAgent("poster", { postRoot: root, publishCmd: "./publish {dir}" }));
+      const hub = makeHub(async () => `x\nPOST_READY: ${folder}`, { agents });
+      hub.send("poster", "q");
+      await hub.settle();
+      const last = hub.store.last("poster")!;
+      return [last.kind, last.kind === "approval" ? hub.postImage(last.id, 0) : null] as const;
+    };
+    const [kind, image] = await kindFor(make("main", "d1"));
+    assert.equal(kind, "approval");
+    assert.ok(image, "its slide can be shown");
+    assert.equal((await kindFor(make("a", "b", "c")))[0], "text", "two folders down is refused");
+    assert.equal((await kindFor(root))[0], "text", "the root itself is refused");
   });
 
   test("a folder outside the post root is not postable", async () => {

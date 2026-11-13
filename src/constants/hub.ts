@@ -2,6 +2,13 @@
 
 export const REMEMBER_RE = /^REMEMBER:\s*(.+)$/gm;
 export const POST_RE = /^POST_READY:\s*(.+)$/gm;
+// Agent-to-agent hand-offs: a reply line `HANDOFF: <agent> | <task>`. At most this many per reply; at most this many
+// agents may already be in the chain (so A -> B -> C is the longest, and nobody is called twice in one chain); and
+// how much of the answer is copied back into the caller's chat.
+export const HANDOFF_RE = /^HANDOFF:\s*([A-Za-z0-9_-]+)\s*\|\s*(.+)$/gm;
+export const MAX_HANDOFFS_PER_REPLY = 2;
+export const MAX_HANDOFF_CHAIN = 2;
+export const HANDOFF_NOTE_CHARS = 1200;
 export const PUBLISH_TIMEOUT = 900;
 export const BEFORE_RUN_TIMEOUT = 180; // a before_run command that takes longer than this is cut off and reported as failed
 export const MAX_REVIEWED_CHARS = 12000;

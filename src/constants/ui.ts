@@ -10,8 +10,8 @@ export const STARTERS = [
 /** Ticked by default in the New agent form. */
 export const DEFAULT_FORM_TOOLS = ["Read", "Grep", "Glob"];
 
-/** Which avatar animal a well-known agent always gets; any other agent gets one picked from its name. */
-export const FIXED_SPECIES: Record<string, string> = { manager: "robot", planner: "owl", reviewer: "cat", researcher: "frog", writer: "bear", "codex-helper": "alien" };
+/** Avatar colours: flat and calm. An agent gets one of these, picked from its name, so it keeps the same colour. */
+export const AVATAR_COLORS = ["#6b7cff", "#14a38b", "#e0568a", "#e08a2e", "#3d8bf2", "#8b5cf6", "#d9534f", "#5b6b82", "#2faa5c", "#c4569e", "#0f9fb5", "#a8812a", "#7a6ff0", "#e0654a", "#4f9a3a", "#5470c6"];
 
 export const USAGE_NOTE =
   "Estimated cost reported by Claude Code (API prices). On a subscription you are not billed this amount; " +
